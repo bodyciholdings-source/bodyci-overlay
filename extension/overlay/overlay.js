@@ -15,6 +15,13 @@ class PulseOverlay {
     this.settings = null;
     this.currentBpm = null;
     this.connectionState = 'disconnected';
+    // Alert state machine — not persisted across page loads
+    this.alertState = 'idle'; // 'idle' | 'alert'
+    this.alertCooldownRemaining = 0;
+    this._alertInterval = null;
+    this.alertPanel = null;
+    this.alertMessageElement = null;
+    this.alertCountdownElement = null;
     // Store unsubscribe functions for cleanup
     this._unsubscribeState = null;
     this._unsubscribeHR = null;
@@ -95,10 +102,14 @@ class PulseOverlay {
     overlay.className = `pulse-overlay ${this.settings.position} size-${this.settings.size}`;
     overlay.style.opacity = this.settings.opacity;
 
+    // Inner row: status + heart + bpm (always horizontal)
+    const bpmRow = document.createElement('div');
+    bpmRow.className = 'bpm-row';
+
     // Status indicator
     this.statusElement = document.createElement('div');
     this.statusElement.className = 'status-indicator status-disconnected';
-    overlay.appendChild(this.statusElement);
+    bpmRow.appendChild(this.statusElement);
 
     // Heart icon (for standard mode)
     this.heartElement = document.createElement('div');
@@ -107,13 +118,15 @@ class PulseOverlay {
     if (this.settings.displayMode === 'minimal') {
       this.heartElement.style.display = 'none';
     }
-    overlay.appendChild(this.heartElement);
+    bpmRow.appendChild(this.heartElement);
 
     // BPM display
     this.bpmElement = document.createElement('div');
     this.bpmElement.className = 'bpm-display';
     this.bpmElement.innerHTML = '<span class="bpm-value">--</span><span class="bpm-label">BPM</span>';
-    overlay.appendChild(this.bpmElement);
+    bpmRow.appendChild(this.bpmElement);
+
+    overlay.appendChild(bpmRow);
 
     // Graph canvas (for graph mode)
     if (this.settings.displayMode === 'graph') {
@@ -131,6 +144,20 @@ class PulseOverlay {
         maxBpm: this.settings.graphMaxBpm
       });
     }
+
+    // Alert panel — always present, only visible in alert state
+    this.alertPanel = document.createElement('div');
+    this.alertPanel.className = 'alert-panel';
+
+    this.alertMessageElement = document.createElement('div');
+    this.alertMessageElement.className = 'alert-message';
+
+    this.alertCountdownElement = document.createElement('div');
+    this.alertCountdownElement.className = 'alert-countdown';
+
+    this.alertPanel.appendChild(this.alertMessageElement);
+    this.alertPanel.appendChild(this.alertCountdownElement);
+    overlay.appendChild(this.alertPanel);
 
     this.shadowRoot.appendChild(overlay);
     document.body.appendChild(this.container);
@@ -169,13 +196,15 @@ class PulseOverlay {
         border-radius: 12px;
         padding: 10px 14px;
         display: flex;
-        align-items: center;
-        gap: 8px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         color: white;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         user-select: none;
-        transition: opacity 0.3s ease;
+        border: 2px solid transparent;
+        transition: opacity 0.3s ease, border-color 0.4s ease, box-shadow 0.4s ease, background 0.4s ease;
       }
 
       .pulse-overlay.top-left { top: 20px; left: 20px; }
@@ -186,6 +215,19 @@ class PulseOverlay {
       .pulse-overlay.size-small { transform: scale(0.8); }
       .pulse-overlay.size-medium { transform: scale(1); }
       .pulse-overlay.size-large { transform: scale(1.2); }
+
+      /* Alert state */
+      .pulse-overlay.alert-active {
+        border-color: #26C6DA;
+        background: rgba(0, 12, 20, 0.88);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 18px rgba(38, 198, 218, 0.35);
+      }
+
+      .bpm-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
 
       .status-indicator {
         width: 8px;
@@ -255,11 +297,40 @@ class PulseOverlay {
       }
 
       .graph-container {
-        margin-left: 4px;
+        margin-top: 6px;
       }
 
       .graph-container canvas {
         display: block;
+      }
+
+      /* Alert panel — hidden until alert-active */
+      .alert-panel {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(38, 198, 218, 0.3);
+      }
+
+      .pulse-overlay.alert-active .alert-panel {
+        display: flex;
+      }
+
+      .alert-message {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #4DD0E1;
+      }
+
+      .alert-countdown {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.55);
+        font-variant-numeric: tabular-nums;
       }
     `;
   }
@@ -287,12 +358,47 @@ class PulseOverlay {
     // Subscribe to heart rate updates
     this._unsubscribeHR = PulseState.onHeartRate((data) => {
       this.currentBpm = data.bpm;
+      this.checkAlertCondition(data.bpm);
       this.updateDisplay();
 
       if (this.graph) {
         this.graph.addPoint(data.bpm, data.timestamp);
       }
     });
+  }
+
+  /**
+   * Check if BPM crosses the alert threshold and fire the alert if so.
+   */
+  checkAlertCondition(bpm) {
+    if (this.alertState !== 'idle') return;
+    if (!this.settings || typeof this.settings.alertThreshold !== 'number') return;
+    if (this.connectionState !== 'connected') return;
+
+    if (bpm > this.settings.alertThreshold) {
+      this.enterAlert();
+    }
+  }
+
+  /**
+   * Enter the ALERT state and start the cooldown countdown.
+   */
+  enterAlert() {
+    this.alertState = 'alert';
+    this.alertCooldownRemaining = this.settings.alertCooldown || 60;
+
+    this._alertInterval = setInterval(() => {
+      this.alertCooldownRemaining--;
+      if (this.alertCooldownRemaining <= 0) {
+        clearInterval(this._alertInterval);
+        this._alertInterval = null;
+        this.alertState = 'idle';
+        this.alertCooldownRemaining = 0;
+      }
+      this.updateDisplay();
+    }, 1000);
+
+    this.updateDisplay();
   }
 
   /**
@@ -356,6 +462,14 @@ class PulseOverlay {
       this._unsubscribeHR = null;
     }
 
+    // Clear alert timer
+    if (this._alertInterval) {
+      clearInterval(this._alertInterval);
+      this._alertInterval = null;
+    }
+    this.alertState = 'idle';
+    this.alertCooldownRemaining = 0;
+
     // Remove fullscreen listeners
     document.removeEventListener('fullscreenchange', this._handleFullscreenChange);
     document.removeEventListener('webkitfullscreenchange', this._handleFullscreenChange);
@@ -376,6 +490,9 @@ class PulseOverlay {
     this.heartElement = null;
     this.graphCanvas = null;
     this.graph = null;
+    this.alertPanel = null;
+    this.alertMessageElement = null;
+    this.alertCountdownElement = null;
   }
 
   /**
@@ -399,6 +516,15 @@ class PulseOverlay {
       bpmValue.textContent = '--';
       this.heartElement.classList.remove('beating');
       overlay.classList.add('disconnected');
+    }
+
+    // Update alert state
+    if (this.alertState === 'alert') {
+      overlay.classList.add('alert-active');
+      this.alertMessageElement.textContent = this.settings.alertMessage || 'Relax';
+      this.alertCountdownElement.textContent = `Cooling down: ${this.alertCooldownRemaining}s`;
+    } else {
+      overlay.classList.remove('alert-active');
     }
   }
 

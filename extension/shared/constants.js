@@ -12,7 +12,10 @@ const PULSE_DEFAULTS = {
   graphDuration: 60,
   graphMinBpm: null,  // null = dynamic
   graphMaxBpm: null,  // null = dynamic
-  siteOverrides: {}
+  siteOverrides: {},
+  alertThreshold: 110,
+  alertCooldown: 60,
+  alertMessage: 'Relax'
 };
 
 const PULSE_STATE_LABELS = {

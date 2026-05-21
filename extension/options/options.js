@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const connectionStatus = document.getElementById('connection-status');
   const currentBpm = document.getElementById('current-bpm');
   const reconnectBtn = document.getElementById('reconnect-btn');
+  const alertThreshold = document.getElementById('alert-threshold');
+  const alertCooldown = document.getElementById('alert-cooldown');
+  const alertMessage = document.getElementById('alert-message');
 
   // Load settings
   const settings = await PulseState.getSettings();
@@ -38,6 +41,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   graphMinBpm.value = settings.graphMinBpm ?? '';
   graphMaxBpm.value = settings.graphMaxBpm ?? '';
   enabled.checked = settings.enabled;
+  alertThreshold.value = settings.alertThreshold;
+  alertCooldown.value = settings.alertCooldown;
+  alertMessage.value = settings.alertMessage;
 
   // Show/hide graph duration based on display mode
   updateGraphDurationVisibility();
@@ -68,6 +74,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   graphMinBpm.addEventListener('change', () => saveSettings());
   graphMaxBpm.addEventListener('change', () => saveSettings());
   enabled.addEventListener('change', () => saveSettings());
+  alertThreshold.addEventListener('change', () => saveSettings());
+  alertCooldown.addEventListener('change', () => saveSettings());
+  alertMessage.addEventListener('change', () => saveSettings());
 
   addSiteBtn.addEventListener('click', () => addSiteOverride());
   newSite.addEventListener('keypress', (e) => {
@@ -93,7 +102,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       graphDuration: parseInt(graphDuration.value),
       graphMinBpm: minVal === '' ? null : parseInt(minVal),
       graphMaxBpm: maxVal === '' ? null : parseInt(maxVal),
-      enabled: enabled.checked
+      enabled: enabled.checked,
+      alertThreshold: parseInt(alertThreshold.value) || 110,
+      alertCooldown: parseInt(alertCooldown.value) || 60,
+      alertMessage: alertMessage.value.trim() || 'Relax'
     };
 
     await chrome.storage.sync.set(newSettings);

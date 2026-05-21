@@ -92,6 +92,29 @@
         </div>
       </section>
 
+      <!-- Alert Settings -->
+      <section class="card">
+        <h2>Alerts</h2>
+
+        <div class="form-group">
+          <label for="alert-threshold">Alert Threshold (BPM)</label>
+          <input type="number" id="alert-threshold" min="50" max="220">
+          <p class="help-text">Show alert when heart rate exceeds this value</p>
+        </div>
+
+        <div class="form-group">
+          <label for="alert-cooldown">Cooldown (seconds)</label>
+          <input type="number" id="alert-cooldown" min="5" max="600">
+          <p class="help-text">Minimum seconds between alerts</p>
+        </div>
+
+        <div class="form-group">
+          <label for="alert-message">Alert Message</label>
+          <input type="text" id="alert-message" maxlength="30" placeholder="Relax">
+          <p class="help-text">Text shown when the alert triggers</p>
+        </div>
+      </section>
+
       <!-- Activation Settings -->
       <section class="card">
         <h2>Activation</h2>
