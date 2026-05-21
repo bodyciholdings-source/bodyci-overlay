@@ -80,10 +80,13 @@ async def run(config: Config, host: str, port: int, device: str | None, name_fil
     global _shutdown_event
     _shutdown_event = asyncio.Event()
 
-    # Set up signal handlers for graceful shutdown
+    # Set up signal handlers for graceful shutdown (not supported on Windows)
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, _signal_handler)
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, _signal_handler)
+    except NotImplementedError:
+        pass
 
     # Start server first so clients can connect during scanning
     server = PulseServer(
