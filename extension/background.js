@@ -83,7 +83,7 @@ async function connect() {
     ws = new WebSocket(settings.serverUrl);
 
     ws.onopen = async () => {
-      console.log('PulseOverlay: Connected to server');
+      console.log('Bodyci: Connected to server');
       isConnecting = false;
       reconnectDelay = 1000; // Reset backoff
       reconnectStartTime = null; // Reset reconnect timer
@@ -111,7 +111,7 @@ async function connect() {
           });
         }
       } catch (e) {
-        console.warn('PulseOverlay: Failed to parse server message:', e);
+        console.warn('Bodyci: Failed to parse server message:', e);
       }
     };
 
@@ -123,7 +123,7 @@ async function connect() {
     };
 
     ws.onerror = (error) => {
-      console.warn('PulseOverlay: WebSocket error:', error);
+      console.warn('Bodyci: WebSocket error:', error);
     };
 
   } catch (e) {
@@ -149,7 +149,7 @@ function scheduleReconnect() {
 
   // Check if we've exceeded the timeout
   if (Date.now() - reconnectStartTime > RECONNECT_TIMEOUT) {
-    console.log('PulseOverlay: Auto-reconnect timeout, waiting for manual reconnect');
+    console.log('Bodyci: Auto-reconnect timeout, waiting for manual reconnect');
     autoReconnectEnabled = false;
     reconnectStartTime = null;
     return;

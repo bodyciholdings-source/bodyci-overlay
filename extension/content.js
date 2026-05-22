@@ -21,7 +21,7 @@
   function initOverlay() {
     // Wait for overlay class to be available
     if (typeof PulseOverlay === 'undefined') {
-      console.error('PulseOverlay: Overlay class not loaded');
+      console.error('Bodyci: Overlay class not loaded');
       return;
     }
 

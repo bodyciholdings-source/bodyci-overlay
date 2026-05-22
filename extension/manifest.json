@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "PulseOverlay",
+  "name": "Bodyci",
   "version": "0.1.0",
   "description": "Display real-time heart rate overlay on any website",
   "permissions": ["storage", "alarms"],
