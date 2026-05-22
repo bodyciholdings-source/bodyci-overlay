@@ -15,7 +15,8 @@ const PULSE_DEFAULTS = {
   siteOverrides: {},
   alertThreshold: 110,
   alertCooldown: 60,
-  alertMessage: 'Relax'
+  alertMessage: 'Relax',
+  alertType: 'visual'
 };
 
 const PULSE_STATE_LABELS = {

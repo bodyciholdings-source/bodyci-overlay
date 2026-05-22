@@ -200,6 +200,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'speak') {
+    chrome.tts.stop();
+    chrome.tts.speak(message.text || '');
+    return true;
+  }
+
   if (message.type === 'reconnect') {
     disconnect();
     reconnectDelay = 1000;

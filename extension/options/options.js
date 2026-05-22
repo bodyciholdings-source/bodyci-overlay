@@ -26,6 +26,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const alertThreshold = document.getElementById('alert-threshold');
   const alertCooldown = document.getElementById('alert-cooldown');
   const alertMessage = document.getElementById('alert-message');
+  const alertType = document.getElementById('alert-type');
+  const testAlertBtn = document.getElementById('test-alert-btn');
+  const testAlertFeedback = document.getElementById('test-alert-feedback');
 
   // Load settings
   const settings = await PulseState.getSettings();
@@ -44,6 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertThreshold.value = settings.alertThreshold;
   alertCooldown.value = settings.alertCooldown;
   alertMessage.value = settings.alertMessage;
+  alertType.value = settings.alertType;
 
   // Show/hide graph duration based on display mode
   updateGraphDurationVisibility();
@@ -77,6 +81,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertThreshold.addEventListener('change', () => saveSettings());
   alertCooldown.addEventListener('change', () => saveSettings());
   alertMessage.addEventListener('change', () => saveSettings());
+  alertType.addEventListener('change', () => saveSettings());
+
+  testAlertBtn.addEventListener('click', () => {
+    const type = alertType.value;
+    const message = alertMessage.value.trim() || 'Relax';
+    const originalText = testAlertFeedback.textContent;
+
+    if (type === 'audio' || type === 'both') {
+      chrome.tts.stop();
+      chrome.tts.speak(message);
+      testAlertFeedback.textContent = `Speaking: "${message}"`;
+    } else {
+      testAlertFeedback.textContent = 'Visual alerts appear in the overlay on web pages.';
+    }
+
+    testAlertBtn.disabled = true;
+    setTimeout(() => {
+      testAlertBtn.disabled = false;
+      testAlertFeedback.textContent = originalText;
+    }, 2500);
+  });
 
   addSiteBtn.addEventListener('click', () => addSiteOverride());
   newSite.addEventListener('keypress', (e) => {
@@ -105,7 +130,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       enabled: enabled.checked,
       alertThreshold: parseInt(alertThreshold.value) || 110,
       alertCooldown: parseInt(alertCooldown.value) || 60,
-      alertMessage: alertMessage.value.trim() || 'Relax'
+      alertMessage: alertMessage.value.trim() || 'Relax',
+      alertType: alertType.value
     };
 
     await chrome.storage.sync.set(newSettings);

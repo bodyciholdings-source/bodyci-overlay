@@ -277,3 +277,12 @@ footer {
   outline: none;
   border-color: #F44336;
 }
+
+.alert-type-row {
+  display: flex;
+  gap: 8px;
+}
+
+.alert-type-row select {
+  flex: 1;
+}

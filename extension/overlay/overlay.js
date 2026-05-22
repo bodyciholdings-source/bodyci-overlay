@@ -18,6 +18,7 @@ class PulseOverlay {
     // Alert state machine — not persisted across page loads
     this.alertState = 'idle'; // 'idle' | 'alert'
     this.alertCooldownRemaining = 0;
+    this._alertShowsVisual = false; // locked in at enterAlert() time
     this._alertInterval = null;
     this.alertPanel = null;
     this.alertMessageElement = null;
@@ -383,8 +384,15 @@ class PulseOverlay {
    * Enter the ALERT state and start the cooldown countdown.
    */
   enterAlert() {
+    const alertType = this.settings.alertType || 'visual';
+    this._alertShowsVisual = alertType === 'visual' || alertType === 'both';
     this.alertState = 'alert';
     this.alertCooldownRemaining = this.settings.alertCooldown || 60;
+
+    // Speak once at trigger time — delegate to background which has chrome.tts access
+    if (alertType === 'audio' || alertType === 'both') {
+      chrome.runtime.sendMessage({ type: 'speak', text: this.settings.alertMessage || 'Relax' });
+    }
 
     this._alertInterval = setInterval(() => {
       this.alertCooldownRemaining--;
@@ -468,6 +476,7 @@ class PulseOverlay {
     }
     this.alertState = 'idle';
     this.alertCooldownRemaining = 0;
+    this._alertShowsVisual = false;
 
     // Remove fullscreen listeners
     document.removeEventListener('fullscreenchange', this._handleFullscreenChange);
@@ -518,7 +527,7 @@ class PulseOverlay {
     }
 
     // Update alert state
-    if (this.alertState === 'alert') {
+    if (this.alertState === 'alert' && this._alertShowsVisual) {
       overlay.classList.add('alert-active');
       this.alertMessageElement.textContent = this.settings.alertMessage || 'Relax';
       this.alertCountdownElement.textContent = `Cooling down: ${this.alertCooldownRemaining}s`;
