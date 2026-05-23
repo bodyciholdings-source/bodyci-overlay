@@ -26,9 +26,11 @@ class PulseOverlay {
     // AI chat
     this._chatHistory = []; // [{role, content}]
     this._alertDisplayMessage = null; // overrides preset message when AI generates one
+    this._chatDismissed = false; // true after user clicks X; reset on next alert
     this.chatAreaElement = null;
     this.chatInputElement = null;
     this.chatSendBtn = null;
+    this.chatCloseBtn = null;
     // Store unsubscribe functions for cleanup
     this._unsubscribeState = null;
     this._unsubscribeHR = null;
@@ -166,6 +168,14 @@ class PulseOverlay {
     this.alertPanel.appendChild(this.alertCountdownElement);
 
     // AI chat area — only visible when alert active + visual + aiChatEnabled
+    const chatSection = document.createElement('div');
+    chatSection.className = 'chat-section';
+
+    this.chatCloseBtn = document.createElement('button');
+    this.chatCloseBtn.className = 'chat-close-btn';
+    this.chatCloseBtn.textContent = '×';
+    this.chatCloseBtn.title = 'Close chat';
+
     this.chatAreaElement = document.createElement('div');
     this.chatAreaElement.className = 'chat-area';
 
@@ -185,10 +195,13 @@ class PulseOverlay {
     chatInputRow.appendChild(this.chatInputElement);
     chatInputRow.appendChild(this.chatSendBtn);
 
-    this.alertPanel.appendChild(this.chatAreaElement);
-    this.alertPanel.appendChild(chatInputRow);
+    chatSection.appendChild(this.chatCloseBtn);
+    chatSection.appendChild(this.chatAreaElement);
+    chatSection.appendChild(chatInputRow);
+    this.alertPanel.appendChild(chatSection);
     overlay.appendChild(this.alertPanel);
 
+    this.chatCloseBtn.addEventListener('click', () => this._dismissChat());
     this.chatSendBtn.addEventListener('click', () => this._handleChatSend());
     this.chatInputElement.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this._handleChatSend();
@@ -375,6 +388,36 @@ class PulseOverlay {
       }
 
       /* AI Chat */
+      .chat-section {
+        position: relative;
+        width: 220px;
+      }
+
+      .chat-close-btn {
+        display: none;
+        position: absolute;
+        top: 2px;
+        right: 0;
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.35);
+        font-size: 14px;
+        line-height: 1;
+        padding: 2px 4px;
+        cursor: pointer;
+        pointer-events: auto;
+        transition: color 0.15s;
+        z-index: 1;
+      }
+
+      .chat-close-btn:hover {
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .pulse-overlay.alert-active.chat-visible .chat-close-btn {
+        display: block;
+      }
+
       .chat-area {
         display: none;
         flex-direction: column;
@@ -523,6 +566,7 @@ class PulseOverlay {
     this.alertState = 'alert';
     this.alertCooldownRemaining = this.settings.alertCooldown || 60;
     this._alertDisplayMessage = null;
+    this._chatDismissed = false;
 
     const useAiMessage = !!(this.settings.aiGeneratedMessage && this.settings.aiChatEnabled);
 
@@ -598,11 +642,26 @@ class PulseOverlay {
   }
 
   /**
-   * Clear chat history and DOM.
+   * User clicked X — hide chat for the rest of this alert cycle and stop audio.
+   * Preserves _alertDisplayMessage so the AI opening text stays in the header.
+   */
+  _dismissChat() {
+    this._chatDismissed = true;
+    chrome.runtime.sendMessage({ type: 'stopElevenLabs' });
+    chrome.runtime.sendMessage({ type: 'stopChromeTts' });
+    this._chatHistory = [];
+    if (this.chatAreaElement) this.chatAreaElement.innerHTML = '';
+    if (this.chatInputElement) this.chatInputElement.value = '';
+    this.updateDisplay();
+  }
+
+  /**
+   * Clear chat history and DOM (called when cooldown ends — resets for next alert).
    */
   _clearChat() {
     this._chatHistory = [];
     this._alertDisplayMessage = null;
+    this._chatDismissed = false;
     if (this.chatAreaElement) {
       this.chatAreaElement.innerHTML = '';
     }
@@ -880,8 +939,10 @@ class PulseOverlay {
     this.chatAreaElement = null;
     this.chatInputElement = null;
     this.chatSendBtn = null;
+    this.chatCloseBtn = null;
     this._chatHistory = [];
     this._alertDisplayMessage = null;
+    this._chatDismissed = false;
   }
 
   /**
@@ -912,7 +973,7 @@ class PulseOverlay {
       overlay.classList.add('alert-active');
       this.alertMessageElement.textContent = this._alertDisplayMessage ?? (this.settings.alertMessage || 'Relax');
       this.alertCountdownElement.textContent = `Cooling down: ${this.alertCooldownRemaining}s`;
-      const showChat = !!(this.settings.aiChatEnabled);
+      const showChat = !!(this.settings.aiChatEnabled) && !this._chatDismissed;
       overlay.classList.toggle('chat-visible', showChat);
       // Allow the container to receive pointer events so the alert panel is clickable
       this.container.style.pointerEvents = 'auto';
