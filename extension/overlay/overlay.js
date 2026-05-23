@@ -31,6 +31,14 @@ class PulseOverlay {
     this.chatInputElement = null;
     this.chatSendBtn = null;
     this.chatCloseBtn = null;
+    this.chatInputRowElement = null;
+    this.micBtnElement = null;
+    // Voice input state
+    this._recognition = null;
+    this._recognitionActive = false;
+    this._voiceState = 'idle'; // 'idle' | 'listening' | 'processing' | 'speaking'
+    this._handleVisibilityChange = null;
+    this._audioEndedListener = null;
     // Store unsubscribe functions for cleanup
     this._unsubscribeState = null;
     this._unsubscribeHR = null;
@@ -49,6 +57,12 @@ class PulseOverlay {
     this._unsubscribeSettings = PulseState.onSettingsChange(() => {
       this.handleSettingsChange();
     });
+
+    // Listen for audio-ended broadcasts from background so we know when to re-enable mic
+    this._audioEndedListener = (message) => {
+      if (message.type === 'audioPlaybackEnded') this._onAudioEnded();
+    };
+    chrome.runtime.onMessage.addListener(this._audioEndedListener);
 
     if (!this.settings || !this.shouldShow()) {
       return;
@@ -184,6 +198,14 @@ class PulseOverlay {
 
     const chatInputRow = document.createElement('div');
     chatInputRow.className = 'chat-input-row';
+    chatInputRow.classList.add(`voice-${this.settings.voiceInputMode || 'off'}`);
+    this.chatInputRowElement = chatInputRow;
+
+    this.micBtnElement = document.createElement('button');
+    this.micBtnElement.type = 'button';
+    this.micBtnElement.className = 'chat-mic-btn mic-idle';
+    this.micBtnElement.title = 'Click to speak';
+    this.micBtnElement.innerHTML = this.getMicSvg();
 
     this.chatInputElement = document.createElement('input');
     this.chatInputElement.type = 'text';
@@ -195,6 +217,7 @@ class PulseOverlay {
     this.chatSendBtn.className = 'chat-send-btn';
     this.chatSendBtn.textContent = 'Send';
 
+    chatInputRow.appendChild(this.micBtnElement);
     chatInputRow.appendChild(this.chatInputElement);
     chatInputRow.appendChild(this.chatSendBtn);
 
@@ -208,6 +231,24 @@ class PulseOverlay {
     this.chatInputElement.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this._handleChatSend();
     });
+    this.micBtnElement.addEventListener('click', () => {
+      if (this._voiceState === 'idle') {
+        this._startListening();
+      } else if (this._voiceState === 'listening') {
+        this._stopListening();
+      }
+    });
+    // Pause mic while user is typing (voice+text mode); restart on blur
+    this.chatInputElement.addEventListener('focus', () => {
+      if (this._voiceState === 'listening') this._stopListening();
+    });
+    this.chatInputElement.addEventListener('blur', () => {
+      const mode = this.settings.voiceInputMode || 'off';
+      if (mode === 'both' && this.alertState === 'alert' && !this._chatDismissed &&
+          this._voiceState === 'idle' && this.settings.aiChatEnabled) {
+        setTimeout(() => this._startListening(), 200);
+      }
+    });
 
     this.shadowRoot.appendChild(overlay);
     document.body.appendChild(this.container);
@@ -215,6 +256,19 @@ class PulseOverlay {
     // Listen for fullscreen changes to move overlay into fullscreen element
     document.addEventListener('fullscreenchange', this._handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', this._handleFullscreenChange);
+
+    // Init voice recognition and stop mic when tab is hidden
+    this._initVoiceInput();
+    this._handleVisibilityChange = () => {
+      if (document.hidden) {
+        this._stopListening();
+      } else if (this.alertState === 'alert' && !this._chatDismissed &&
+                 (this.settings.voiceInputMode || 'off') !== 'off' &&
+                 this.settings.aiChatEnabled) {
+        setTimeout(() => this._startListening(), 200);
+      }
+    };
+    document.addEventListener('visibilitychange', this._handleVisibilityChange);
   }
 
   /**
@@ -529,6 +583,65 @@ class PulseOverlay {
         opacity: 0.4;
         cursor: default;
       }
+
+      /* Voice input mic button */
+      .chat-mic-btn {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.4);
+        cursor: pointer;
+        flex-shrink: 0;
+        pointer-events: auto;
+        transition: color 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
+      }
+
+      .chat-mic-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .chat-input-row.voice-only .chat-mic-btn,
+      .chat-input-row.voice-both .chat-mic-btn {
+        display: flex;
+      }
+
+      .chat-input-row.voice-only .chat-input,
+      .chat-input-row.voice-only .chat-send-btn {
+        display: none;
+      }
+
+      .chat-mic-btn.mic-listening {
+        border-color: #ef5350;
+        background: rgba(239, 83, 80, 0.15);
+        color: #ef5350;
+        animation: mic-pulse 1.4s ease-in-out infinite;
+      }
+
+      .chat-mic-btn.mic-processing {
+        border-color: rgba(38, 198, 218, 0.35);
+        background: rgba(38, 198, 218, 0.06);
+        color: rgba(38, 198, 218, 0.45);
+        cursor: default;
+      }
+
+      .chat-mic-btn.mic-speaking {
+        border-color: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.2);
+        cursor: default;
+      }
+
+      @keyframes mic-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 83, 80, 0.5); }
+        50% { box-shadow: 0 0 0 6px rgba(239, 83, 80, 0); }
+      }
     `;
   }
 
@@ -614,16 +727,7 @@ class PulseOverlay {
     } else {
       // Normal mode: show preset, speak if audio
       if (alertType === 'audio' || alertType === 'both') {
-        const text = this.settings.alertMessage || 'Relax';
-        const voiceId = this.settings.selectedVoice || 'standard';
-        const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
-        if (voice.engine === 'elevenlabs' && typeof speakElevenLabs === 'function') {
-          speakElevenLabs(text, voice.id).then(success => {
-            if (!success) chrome.runtime.sendMessage({ type: 'speak', text });
-          });
-        } else {
-          chrome.runtime.sendMessage({ type: 'speak', text });
-        }
+        this._speakText(this.settings.alertMessage || 'Relax');
       }
       this.updateDisplay();
     }
@@ -639,12 +743,23 @@ class PulseOverlay {
       }
       this.updateDisplay();
     }, 1000);
+
+    // Auto-start voice if enabled (delay lets DOM render and optional AI audio start first)
+    if ((this.settings.voiceInputMode || 'off') !== 'off' && this.settings.aiChatEnabled) {
+      setTimeout(() => {
+        if (this.alertState === 'alert' && !this._chatDismissed) this._startListening();
+      }, 400);
+    }
   }
 
   /**
    * Speak text using the currently-selected voice, cancelling any prior audio.
    */
   _speakText(text) {
+    // Stop any active mic session — the mic must be silent while AI is speaking
+    if (this._voiceState === 'listening') this._stopListening();
+    if ((this.settings.voiceInputMode || 'off') !== 'off') this._setVoiceState('speaking');
+
     const voiceId = this.settings.selectedVoice || 'standard';
     const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
     if (voice.engine === 'elevenlabs' && typeof speakElevenLabs === 'function') {
@@ -665,6 +780,7 @@ class PulseOverlay {
    * Preserves _alertDisplayMessage so the AI opening text stays in the header.
    */
   _dismissChat() {
+    this._stopListening();
     this._chatDismissed = true;
     chrome.runtime.sendMessage({ type: 'stopElevenLabs' });
     chrome.runtime.sendMessage({ type: 'stopChromeTts' });
@@ -678,6 +794,7 @@ class PulseOverlay {
    * Clear chat history and DOM (called when cooldown ends — resets for next alert).
    */
   _clearChat() {
+    this._stopListening();
     this._chatHistory = [];
     this._alertDisplayMessage = null;
     this._chatDismissed = false;
@@ -806,7 +923,7 @@ class PulseOverlay {
 
       if (!fullText) throw new Error('empty');
       this._chatHistory.push({ role: 'assistant', content: fullText });
-      this._speakText(fullText);
+      this._speakText(fullText); // also stops mic and sets 'speaking' state
     } catch (e) {
       console.warn('Bodyci: AI chat error:', e);
       if (assistantBubble) {
@@ -824,8 +941,11 @@ class PulseOverlay {
       if (this.chatSendBtn) this.chatSendBtn.disabled = false;
       if (this.chatInputElement) {
         this.chatInputElement.disabled = false;
-        this.chatInputElement.focus();
+        // Only refocus text input in text-available modes
+        if ((this.settings.voiceInputMode || 'off') !== 'only') this.chatInputElement.focus();
       }
+      // Mic restart is handled by _onAudioEnded() once the audio playback actually ends.
+      // No timer needed here — _speakText() already put the mic into 'speaking' state.
     }
   }
 
@@ -860,6 +980,125 @@ class PulseOverlay {
       console.warn('Bodyci: AI opening message failed:', e);
       return fullText || null; // partial text beats a blank screen; null triggers preset
     }
+  }
+
+  getMicSvg() {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+      <line x1="12" y1="19" x2="12" y2="23"/>
+      <line x1="8" y1="23" x2="16" y2="23"/>
+    </svg>`;
+  }
+
+  _initVoiceInput() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      this._recognition = null;
+      return;
+    }
+
+    this._recognition = new SR();
+    this._recognition.continuous = false;
+    this._recognition.interimResults = false;
+    this._recognition.lang = 'en-US';
+    this._recognition.maxAlternatives = 1;
+
+    this._recognition.onstart = () => {
+      this._recognitionActive = true;
+      this._setVoiceState('listening');
+    };
+
+    this._recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .slice(event.resultIndex)
+        .filter(r => r.isFinal)
+        .map(r => r[0].transcript)
+        .join('')
+        .trim();
+      if (transcript) {
+        this._recognitionActive = false;
+        this._setVoiceState('processing');
+        this.sendChatMessage(transcript);
+      }
+    };
+
+    this._recognition.onerror = (event) => {
+      this._recognitionActive = false;
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        this._setVoiceState('idle');
+        this._addChatBubble('assistant',
+          'Voice input needs microphone access. Enable it in your browser settings and reload.');
+        return;
+      }
+      if (event.error === 'aborted') {
+        // We stopped it intentionally — onend will fire but should not restart
+        return;
+      }
+      // Transient errors (no-speech, network) — restart loop via onend
+      this._setVoiceState('idle');
+    };
+
+    this._recognition.onend = () => {
+      this._recognitionActive = false;
+      // Restart only if we're still in listening mode (not processing/speaking/idle-by-intent)
+      if (this._voiceState === 'listening' && this.alertState === 'alert' &&
+          !this._chatDismissed && (this.settings.voiceInputMode || 'off') !== 'off' &&
+          this.settings.aiChatEnabled) {
+        setTimeout(() => {
+          if (this.alertState === 'alert' && !this._chatDismissed &&
+              this._voiceState === 'listening') {
+            this._startListening();
+          }
+        }, 150);
+      } else if (this._voiceState === 'listening') {
+        this._setVoiceState('idle');
+      }
+    };
+  }
+
+  _startListening() {
+    if (!this._recognition) return;
+    if (this._recognitionActive) return;
+    if ((this.settings.voiceInputMode || 'off') === 'off') return;
+    // Never start mic while AI is generating ('processing') or playing audio ('speaking')
+    if (this._voiceState === 'processing' || this._voiceState === 'speaking') return;
+    try {
+      this._recognition.start();
+    } catch (e) {
+      console.warn('Bodyci: voice start error:', e);
+    }
+  }
+
+  _stopListening() {
+    // Set state to idle BEFORE calling stop() so the onend handler won't restart
+    this._setVoiceState('idle');
+    if (this._recognition && this._recognitionActive) {
+      this._recognitionActive = false;
+      try { this._recognition.stop(); } catch (e) {}
+    }
+  }
+
+  _setVoiceState(state) {
+    this._voiceState = state;
+    if (!this.micBtnElement) return;
+    this.micBtnElement.className = `chat-mic-btn mic-${state}`;
+    this.micBtnElement.disabled = state === 'processing' || state === 'speaking';
+    const titles = {
+      idle: 'Click to speak',
+      listening: 'Listening… click to stop',
+      processing: 'Processing…',
+      speaking: 'AI is speaking…'
+    };
+    this.micBtnElement.title = titles[state] ?? '';
+  }
+
+  _onAudioEnded() {
+    if (this._voiceState !== 'speaking') return;
+    if (this.alertState !== 'alert' || this._chatDismissed) return;
+    if ((this.settings.voiceInputMode || 'off') === 'off' || !this.settings.aiChatEnabled) return;
+    this._setVoiceState('idle');
+    this._startListening();
   }
 
   /**
@@ -917,6 +1156,11 @@ class PulseOverlay {
         for (const msg of snap._chatHistory) {
           this._addChatBubble(msg.role, msg.content);
         }
+        // Restart voice if enabled after rebuild
+        if (!snap._chatDismissed && this.settings.aiChatEnabled &&
+            (this.settings.voiceInputMode || 'off') !== 'off') {
+          setTimeout(() => this._startListening(), 300);
+        }
       }
     } else if (this.container) {
       // Apply visual changes in-place — alert state is completely untouched
@@ -933,6 +1177,19 @@ class PulseOverlay {
         this.graph.duration = this.settings.graphDuration;
         this.graph.fixedMinBpm = this.settings.graphMinBpm ?? null;
         this.graph.fixedMaxBpm = this.settings.graphMaxBpm ?? null;
+      }
+      // Sync voice mode class and recognition state
+      if (this.chatInputRowElement) {
+        this.chatInputRowElement.classList.remove('voice-off', 'voice-only', 'voice-both');
+        this.chatInputRowElement.classList.add(`voice-${this.settings.voiceInputMode || 'off'}`);
+      }
+      if (this.alertState === 'alert' && !this._chatDismissed && this.settings.aiChatEnabled) {
+        const newMode = this.settings.voiceInputMode || 'off';
+        if (newMode !== 'off') {
+          this._startListening();
+        } else {
+          this._stopListening();
+        }
       }
     }
 
@@ -975,9 +1232,19 @@ class PulseOverlay {
     this.alertCooldownRemaining = 0;
     this._alertShowsVisual = false;
 
-    // Remove fullscreen listeners
+    // Remove fullscreen and visibility listeners
     document.removeEventListener('fullscreenchange', this._handleFullscreenChange);
     document.removeEventListener('webkitfullscreenchange', this._handleFullscreenChange);
+    if (this._handleVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._handleVisibilityChange);
+      this._handleVisibilityChange = null;
+    }
+
+    // Stop voice recognition
+    this._stopListening();
+    this._recognition = null;
+    this._recognitionActive = false;
+    this._voiceState = 'idle';
 
     // Clean up graph
     if (this.graph && typeof this.graph.clear === 'function') {
@@ -1002,6 +1269,8 @@ class PulseOverlay {
     this.chatInputElement = null;
     this.chatSendBtn = null;
     this.chatCloseBtn = null;
+    this.chatInputRowElement = null;
+    this.micBtnElement = null;
     this._chatHistory = [];
     this._alertDisplayMessage = null;
     this._chatDismissed = false;
@@ -1058,6 +1327,12 @@ class PulseOverlay {
     if (this._unsubscribeSettings) {
       this._unsubscribeSettings();
       this._unsubscribeSettings = null;
+    }
+
+    // Remove audio-ended listener (added in init(), persists across removeOverlay() calls)
+    if (this._audioEndedListener) {
+      chrome.runtime.onMessage.removeListener(this._audioEndedListener);
+      this._audioEndedListener = null;
     }
   }
 }

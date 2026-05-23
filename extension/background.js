@@ -219,12 +219,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'speak') {
     chrome.tts.stop();
-    chrome.tts.speak(message.text || '');
+    chrome.tts.speak(message.text || '', {
+      onEvent: (event) => {
+        // Notify all tabs when speech ends naturally so the mic can re-activate.
+        // Ignore 'interrupted'/'cancelled' — those come from explicit stops, not natural end.
+        if (event.type === 'end') broadcast({ type: 'audioPlaybackEnded' });
+      }
+    });
     return true;
   }
 
   if (message.type === 'stopChromeTts') {
     chrome.tts.stop();
+    return true;
+  }
+
+  if (message.type === '_offscreenAudioEnded') {
+    // ElevenLabs audio finished naturally in the offscreen document — tell all content scripts
+    broadcast({ type: 'audioPlaybackEnded' });
     return true;
   }
 

@@ -19,7 +19,8 @@ const PULSE_DEFAULTS = {
   alertType: 'visual',
   selectedVoice: 'standard',
   aiChatEnabled: false,
-  aiGeneratedMessage: false
+  aiGeneratedMessage: false,
+  voiceInputMode: 'off'
 };
 
 const OPENAI_MODEL = 'gpt-4o-mini';

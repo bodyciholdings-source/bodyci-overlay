@@ -58,7 +58,13 @@ async function playElevenLabs(text, voiceId) {
 
   // Revoke the blob URL and clear the reference when playback finishes naturally.
   // Use identity check so a subsequent _offscreenStop doesn't clear a newer audio's ref.
-  audio.onended = () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; };
+  audio.onended = () => {
+    URL.revokeObjectURL(url);
+    if (currentAudio === audio) currentAudio = null;
+    // Notify background so the content script can re-enable the mic after AI finishes speaking.
+    // Only fires on natural end — pause() (from _offscreenStop) does NOT trigger onended.
+    chrome.runtime.sendMessage({ type: '_offscreenAudioEnded' }).catch(() => {});
+  };
   audio.onerror = () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; };
 
   // Respond to the caller as soon as playback starts — NOT when it ends.

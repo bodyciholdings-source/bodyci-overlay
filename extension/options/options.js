@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const testAlertFeedback = document.getElementById('test-alert-feedback');
   const voiceSelect = document.getElementById('voice-select');
   const voiceStatus = document.getElementById('voice-status');
+  const voiceInputMode = document.getElementById('voice-input-mode');
   const aiChatEnabled = document.getElementById('ai-chat-enabled');
   const aiGeneratedMessage = document.getElementById('ai-generated-message');
 
@@ -52,6 +53,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertCooldown.value = settings.alertCooldown;
   alertMessage.value = settings.alertMessage;
   alertType.value = settings.alertType;
+  voiceInputMode.value = settings.voiceInputMode || 'off';
   aiChatEnabled.checked = settings.aiChatEnabled;
   aiGeneratedMessage.checked = settings.aiGeneratedMessage;
 
@@ -113,6 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertMessage.addEventListener('change', () => saveSettings());
   alertType.addEventListener('change', () => saveSettings());
   voiceSelect.addEventListener('change', () => saveSettings());
+  voiceInputMode.addEventListener('change', () => saveSettings());
   aiChatEnabled.addEventListener('change', () => {
     // Turning off AI chat also turns off AI-generated messages
     if (!aiChatEnabled.checked) {
@@ -193,6 +196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       alertMessage: alertMessage.value.trim() || 'Relax',
       alertType: alertType.value,
       selectedVoice: voiceSelect.value,
+      voiceInputMode: voiceInputMode.value,
       aiChatEnabled: aiChatEnabled.checked,
       aiGeneratedMessage: aiGeneratedMessage.checked
     };
