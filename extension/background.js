@@ -229,7 +229,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await ensureOffscreenDocument();
         const success = await new Promise((resolve) => {
           chrome.runtime.sendMessage(
-            { type: '_offscreenPlay', text: message.text },
+            { type: '_offscreenPlay', text: message.text, voiceId: message.voiceId },
             (response) => {
               if (chrome.runtime.lastError) { resolve(false); return; }
               resolve(response != null && response.success === true);

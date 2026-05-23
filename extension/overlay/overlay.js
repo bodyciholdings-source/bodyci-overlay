@@ -392,8 +392,10 @@ class PulseOverlay {
     // Speak once at trigger time
     if (alertType === 'audio' || alertType === 'both') {
       const text = this.settings.alertMessage || 'Relax';
-      if (this.settings.voiceQuality === 'premium' && typeof speakElevenLabs === 'function') {
-        speakElevenLabs(text).then(success => {
+      const voiceId = this.settings.selectedVoice || 'standard';
+      const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
+      if (voice.engine === 'elevenlabs' && typeof speakElevenLabs === 'function') {
+        speakElevenLabs(text, voice.id).then(success => {
           if (!success) chrome.runtime.sendMessage({ type: 'speak', text });
         });
       } else {

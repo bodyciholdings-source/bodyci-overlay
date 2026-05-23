@@ -6,18 +6,18 @@
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== '_offscreenPlay') return;
 
-  playElevenLabs(message.text)
+  playElevenLabs(message.text, message.voiceId)
     .then(success => sendResponse({ success }))
     .catch(() => sendResponse({ success: false }));
 
   return true; // keep channel open for async sendResponse
 });
 
-async function playElevenLabs(text) {
+async function playElevenLabs(text, voiceId) {
   const key = BODYCI_CONFIG.elevenLabsApiKey;
-  const voiceId = BODYCI_CONFIG.elevenLabsVoiceId;
 
   if (!key || key === 'PASTE_KEY_HERE') return false;
+  if (!voiceId) return false;
 
   const response = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,

@@ -29,8 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const alertType = document.getElementById('alert-type');
   const testAlertBtn = document.getElementById('test-alert-btn');
   const testAlertFeedback = document.getElementById('test-alert-feedback');
-  const voiceQuality = document.getElementById('voice-quality');
-  const voiceQualityStatus = document.getElementById('voice-quality-status');
+  const voiceSelect = document.getElementById('voice-select');
+  const voiceStatus = document.getElementById('voice-status');
 
   // Load settings
   const settings = await PulseState.getSettings();
@@ -50,20 +50,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertCooldown.value = settings.alertCooldown;
   alertMessage.value = settings.alertMessage;
   alertType.value = settings.alertType;
-  voiceQuality.value = settings.voiceQuality;
 
-  // Enable/disable Premium based on whether a real API key is present
+  // Populate voice dropdown from VOICE_OPTIONS
   const elevenLabsReady = typeof BODYCI_CONFIG !== 'undefined' &&
     BODYCI_CONFIG.elevenLabsApiKey &&
     BODYCI_CONFIG.elevenLabsApiKey !== 'PASTE_KEY_HERE';
 
-  if (!elevenLabsReady) {
-    voiceQuality.querySelector('option[value="premium"]').disabled = true;
-    if (voiceQuality.value === 'premium') voiceQuality.value = 'standard';
-    voiceQualityStatus.textContent = 'Add your ElevenLabs API key to config.local.js to enable Premium voice.';
-  } else {
-    voiceQualityStatus.textContent = 'Premium uses ElevenLabs neural TTS for natural-sounding speech.';
+  for (const voice of VOICE_OPTIONS) {
+    const opt = document.createElement('option');
+    opt.value = voice.id;
+    opt.textContent = voice.name;
+    if (voice.engine === 'elevenlabs' && !elevenLabsReady) {
+      opt.disabled = true;
+      opt.textContent += ' (API key required)';
+    }
+    voiceSelect.appendChild(opt);
   }
+
+  // Select saved voice, falling back to standard if stored value is gone
+  voiceSelect.value = settings.selectedVoice;
+  if (!voiceSelect.value) voiceSelect.value = 'standard';
+
+  voiceStatus.textContent = elevenLabsReady
+    ? ''
+    : 'Add your ElevenLabs API key to config.local.js to enable additional voices.';
 
   // Show/hide graph duration based on display mode
   updateGraphDurationVisibility();
@@ -98,22 +108,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertCooldown.addEventListener('change', () => saveSettings());
   alertMessage.addEventListener('change', () => saveSettings());
   alertType.addEventListener('change', () => saveSettings());
-  voiceQuality.addEventListener('change', () => saveSettings());
+  voiceSelect.addEventListener('change', () => saveSettings());
 
   testAlertBtn.addEventListener('click', async () => {
     const type = alertType.value;
-    const quality = voiceQuality.value;
     const message = alertMessage.value.trim() || 'Relax';
+    const voiceId = voiceSelect.value;
+    const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
     const originalText = testAlertFeedback.textContent;
 
     testAlertBtn.disabled = true;
 
     if (type === 'audio' || type === 'both') {
-      if (quality === 'premium') {
-        testAlertFeedback.textContent = `Requesting ElevenLabs…`;
-        const success = await speakElevenLabs(message);
+      if (voice.engine === 'elevenlabs') {
+        testAlertFeedback.textContent = `Requesting ${voice.name}…`;
+        const success = await speakElevenLabs(message, voice.id);
         if (success) {
-          testAlertFeedback.textContent = `Speaking: "${message}" (ElevenLabs)`;
+          testAlertFeedback.textContent = `Speaking: "${message}" (${voice.name})`;
         } else {
           chrome.tts.stop();
           chrome.tts.speak(message);
@@ -163,7 +174,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       alertCooldown: parseInt(alertCooldown.value) || 60,
       alertMessage: alertMessage.value.trim() || 'Relax',
       alertType: alertType.value,
-      voiceQuality: voiceQuality.value
+      selectedVoice: voiceSelect.value
     };
 
     await chrome.storage.sync.set(newSettings);
