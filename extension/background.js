@@ -185,6 +185,23 @@ function disconnect() {
   currentBpm = null;
 }
 
+/**
+ * Ensure the offscreen document exists for audio playback.
+ * Chrome only allows one offscreen document per extension.
+ */
+async function ensureOffscreenDocument() {
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT']
+  });
+  if (contexts.length === 0) {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Playing ElevenLabs TTS audio for heart rate alerts'
+    });
+  }
+}
+
 // Handle messages from popup/options/content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'getState') {
@@ -204,6 +221,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tts.stop();
     chrome.tts.speak(message.text || '');
     return true;
+  }
+
+  if (message.type === 'elevenLabsSpeak') {
+    (async () => {
+      try {
+        await ensureOffscreenDocument();
+        const success = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: '_offscreenPlay', text: message.text },
+            (response) => {
+              if (chrome.runtime.lastError) { resolve(false); return; }
+              resolve(response != null && response.success === true);
+            }
+          );
+        });
+        sendResponse({ success });
+      } catch (e) {
+        console.warn('Bodyci: offscreen ElevenLabs failed:', e);
+        sendResponse({ success: false });
+      }
+    })();
+    return true; // async sendResponse
   }
 
   if (message.type === 'reconnect') {

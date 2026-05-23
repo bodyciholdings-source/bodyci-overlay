@@ -29,6 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const alertType = document.getElementById('alert-type');
   const testAlertBtn = document.getElementById('test-alert-btn');
   const testAlertFeedback = document.getElementById('test-alert-feedback');
+  const voiceQuality = document.getElementById('voice-quality');
+  const voiceQualityStatus = document.getElementById('voice-quality-status');
 
   // Load settings
   const settings = await PulseState.getSettings();
@@ -48,6 +50,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertCooldown.value = settings.alertCooldown;
   alertMessage.value = settings.alertMessage;
   alertType.value = settings.alertType;
+  voiceQuality.value = settings.voiceQuality;
+
+  // Enable/disable Premium based on whether a real API key is present
+  const elevenLabsReady = typeof BODYCI_CONFIG !== 'undefined' &&
+    BODYCI_CONFIG.elevenLabsApiKey &&
+    BODYCI_CONFIG.elevenLabsApiKey !== 'PASTE_KEY_HERE';
+
+  if (!elevenLabsReady) {
+    voiceQuality.querySelector('option[value="premium"]').disabled = true;
+    if (voiceQuality.value === 'premium') voiceQuality.value = 'standard';
+    voiceQualityStatus.textContent = 'Add your ElevenLabs API key to config.local.js to enable Premium voice.';
+  } else {
+    voiceQualityStatus.textContent = 'Premium uses ElevenLabs neural TTS for natural-sounding speech.';
+  }
 
   // Show/hide graph duration based on display mode
   updateGraphDurationVisibility();
@@ -82,25 +98,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertCooldown.addEventListener('change', () => saveSettings());
   alertMessage.addEventListener('change', () => saveSettings());
   alertType.addEventListener('change', () => saveSettings());
+  voiceQuality.addEventListener('change', () => saveSettings());
 
-  testAlertBtn.addEventListener('click', () => {
+  testAlertBtn.addEventListener('click', async () => {
     const type = alertType.value;
+    const quality = voiceQuality.value;
     const message = alertMessage.value.trim() || 'Relax';
     const originalText = testAlertFeedback.textContent;
 
+    testAlertBtn.disabled = true;
+
     if (type === 'audio' || type === 'both') {
-      chrome.tts.stop();
-      chrome.tts.speak(message);
-      testAlertFeedback.textContent = `Speaking: "${message}"`;
+      if (quality === 'premium') {
+        testAlertFeedback.textContent = `Requesting ElevenLabs…`;
+        const success = await speakElevenLabs(message);
+        if (success) {
+          testAlertFeedback.textContent = `Speaking: "${message}" (ElevenLabs)`;
+        } else {
+          chrome.tts.stop();
+          chrome.tts.speak(message);
+          testAlertFeedback.textContent = `ElevenLabs failed — using system voice`;
+        }
+      } else {
+        chrome.tts.stop();
+        chrome.tts.speak(message);
+        testAlertFeedback.textContent = `Speaking: "${message}"`;
+      }
     } else {
       testAlertFeedback.textContent = 'Visual alerts appear in the overlay on web pages.';
     }
 
-    testAlertBtn.disabled = true;
     setTimeout(() => {
       testAlertBtn.disabled = false;
       testAlertFeedback.textContent = originalText;
-    }, 2500);
+    }, 3000);
   });
 
   addSiteBtn.addEventListener('click', () => addSiteOverride());
@@ -131,7 +162,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       alertThreshold: parseInt(alertThreshold.value) || 110,
       alertCooldown: parseInt(alertCooldown.value) || 60,
       alertMessage: alertMessage.value.trim() || 'Relax',
-      alertType: alertType.value
+      alertType: alertType.value,
+      voiceQuality: voiceQuality.value
     };
 
     await chrome.storage.sync.set(newSettings);

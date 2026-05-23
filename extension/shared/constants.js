@@ -16,7 +16,8 @@ const PULSE_DEFAULTS = {
   alertThreshold: 110,
   alertCooldown: 60,
   alertMessage: 'Relax',
-  alertType: 'visual'
+  alertType: 'visual',
+  voiceQuality: 'standard'
 };
 
 const PULSE_STATE_LABELS = {

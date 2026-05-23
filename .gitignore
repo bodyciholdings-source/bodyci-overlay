@@ -47,3 +47,6 @@ docs/
 .claude/
 CLAUDE.md
 
+# Local secrets — never commit
+extension/config.local.js
+

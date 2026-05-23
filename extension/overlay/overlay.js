@@ -389,9 +389,16 @@ class PulseOverlay {
     this.alertState = 'alert';
     this.alertCooldownRemaining = this.settings.alertCooldown || 60;
 
-    // Speak once at trigger time — delegate to background which has chrome.tts access
+    // Speak once at trigger time
     if (alertType === 'audio' || alertType === 'both') {
-      chrome.runtime.sendMessage({ type: 'speak', text: this.settings.alertMessage || 'Relax' });
+      const text = this.settings.alertMessage || 'Relax';
+      if (this.settings.voiceQuality === 'premium' && typeof speakElevenLabs === 'function') {
+        speakElevenLabs(text).then(success => {
+          if (!success) chrome.runtime.sendMessage({ type: 'speak', text });
+        });
+      } else {
+        chrome.runtime.sendMessage({ type: 'speak', text });
+      }
     }
 
     this._alertInterval = setInterval(() => {
