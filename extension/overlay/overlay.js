@@ -135,6 +135,18 @@ class PulseOverlay {
     this.bpmElement.innerHTML = '<span class="bpm-value">--</span><span class="bpm-label">BPM</span>';
     bpmRow.appendChild(this.bpmElement);
 
+    // Alert message — hidden in idle, replaces BPM display in alert state, centered in available space
+    this.alertMessageElement = document.createElement('div');
+    this.alertMessageElement.className = 'alert-message';
+    bpmRow.appendChild(this.alertMessageElement);
+
+    // Close button — anchored to far right of bpmRow, hidden until alert+chat is visible
+    this.chatCloseBtn = document.createElement('button');
+    this.chatCloseBtn.className = 'chat-close-btn';
+    this.chatCloseBtn.textContent = '×';
+    this.chatCloseBtn.title = 'Close chat';
+    bpmRow.appendChild(this.chatCloseBtn);
+
     overlay.appendChild(bpmRow);
 
     // Graph canvas (for graph mode)
@@ -158,23 +170,14 @@ class PulseOverlay {
     this.alertPanel = document.createElement('div');
     this.alertPanel.className = 'alert-panel';
 
-    this.alertMessageElement = document.createElement('div');
-    this.alertMessageElement.className = 'alert-message';
-
     this.alertCountdownElement = document.createElement('div');
     this.alertCountdownElement.className = 'alert-countdown';
 
-    this.alertPanel.appendChild(this.alertMessageElement);
     this.alertPanel.appendChild(this.alertCountdownElement);
 
     // AI chat area — only visible when alert active + visual + aiChatEnabled
     const chatSection = document.createElement('div');
     chatSection.className = 'chat-section';
-
-    this.chatCloseBtn = document.createElement('button');
-    this.chatCloseBtn.className = 'chat-close-btn';
-    this.chatCloseBtn.textContent = '×';
-    this.chatCloseBtn.title = 'Close chat';
 
     this.chatAreaElement = document.createElement('div');
     this.chatAreaElement.className = 'chat-area';
@@ -195,7 +198,6 @@ class PulseOverlay {
     chatInputRow.appendChild(this.chatInputElement);
     chatInputRow.appendChild(this.chatSendBtn);
 
-    chatSection.appendChild(this.chatCloseBtn);
     chatSection.appendChild(this.chatAreaElement);
     chatSection.appendChild(chatInputRow);
     this.alertPanel.appendChild(chatSection);
@@ -248,6 +250,7 @@ class PulseOverlay {
         flex-direction: column;
         align-items: stretch;
         gap: 0;
+        max-width: 380px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         color: white;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -271,6 +274,10 @@ class PulseOverlay {
       }
 
       /* Alert state */
+      .pulse-overlay.alert-active .bpm-row {
+        align-items: flex-start;
+      }
+
       .pulse-overlay.alert-active {
         border-color: #26C6DA;
         background: rgba(0, 12, 20, 0.88);
@@ -374,11 +381,26 @@ class PulseOverlay {
       }
 
       .alert-message {
+        display: none;
+        flex: 1;
+        min-width: 0;
+        text-align: center;
+        word-break: break-word;
+        overflow-wrap: break-word;
+        line-height: 1.3;
         font-size: 18px;
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: #4DD0E1;
+      }
+
+      .pulse-overlay.alert-active .alert-message {
+        display: block;
+      }
+
+      .pulse-overlay.alert-active .bpm-display {
+        display: none;
       }
 
       .alert-countdown {
@@ -389,15 +411,12 @@ class PulseOverlay {
 
       /* AI Chat */
       .chat-section {
-        position: relative;
         width: 220px;
       }
 
       .chat-close-btn {
         display: none;
-        position: absolute;
-        top: 2px;
-        right: 0;
+        flex-shrink: 0;
         background: none;
         border: none;
         color: rgba(255, 255, 255, 0.35);
@@ -407,7 +426,6 @@ class PulseOverlay {
         cursor: pointer;
         pointer-events: auto;
         transition: color 0.15s;
-        z-index: 1;
       }
 
       .chat-close-btn:hover {
@@ -415,7 +433,8 @@ class PulseOverlay {
       }
 
       .pulse-overlay.alert-active.chat-visible .chat-close-btn {
-        display: block;
+        display: flex;
+        align-items: center;
       }
 
       .chat-area {
