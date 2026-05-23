@@ -870,39 +870,82 @@ class PulseOverlay {
     this.settings = await PulseState.getSettings();
 
     if (!this.shouldShow()) {
-      // Remove overlay but keep settings listener active
       this.removeOverlay();
       return;
     }
 
-    // Recreate overlay if display mode, position, size, opacity, or graph settings changed
-    const needsRecreate = this.container && oldSettings && (
-      oldSettings.displayMode !== this.settings.displayMode ||
-      oldSettings.position !== this.settings.position ||
-      oldSettings.size !== this.settings.size ||
-      oldSettings.opacity !== this.settings.opacity ||
-      oldSettings.graphDuration !== this.settings.graphDuration ||
-      oldSettings.graphMinBpm !== this.settings.graphMinBpm ||
-      oldSettings.graphMaxBpm !== this.settings.graphMaxBpm
-    );
+    // Only displayMode requires a DOM rebuild (graph canvas must be created/removed).
+    // All other settings are applied in-place so an active alert is never interrupted.
+    const needsRebuild = this.container && oldSettings &&
+      oldSettings.displayMode !== this.settings.displayMode;
 
-    if (needsRecreate) {
+    if (needsRebuild) {
+      // Snapshot every piece of alert state before teardown
+      const snap = {
+        alertState: this.alertState,
+        alertCooldownRemaining: this.alertCooldownRemaining,
+        _alertShowsVisual: this._alertShowsVisual,
+        _alertInterval: this._alertInterval,
+        _chatHistory: [...this._chatHistory],
+        _alertDisplayMessage: this._alertDisplayMessage,
+        _chatDismissed: this._chatDismissed,
+      };
+      // Detach the live timer so removeOverlay() doesn't cancel it
+      this._alertInterval = null;
       this.removeOverlay();
-    }
-
-    if (!this.container) {
       this.createOverlay();
       this.setupListeners();
 
-      // Get initial state
       const state = await PulseState.getState();
       this.connectionState = state.connectionState;
       if (state.currentBpm !== null) {
         this.currentBpm = state.currentBpm;
-        // Seed graph with current BPM if in graph mode
-        if (this.graph) {
-          this.graph.addPoint(state.currentBpm, Date.now());
+        if (this.graph) this.graph.addPoint(state.currentBpm, Date.now());
+      }
+
+      // Restore alert state — never call enterAlert() again
+      this.alertState = snap.alertState;
+      this.alertCooldownRemaining = snap.alertCooldownRemaining;
+      this._alertShowsVisual = snap._alertShowsVisual;
+      this._alertInterval = snap._alertInterval;
+      this._chatHistory = snap._chatHistory;
+      this._alertDisplayMessage = snap._alertDisplayMessage;
+      this._chatDismissed = snap._chatDismissed;
+
+      // Re-render chat history into new DOM
+      if (snap.alertState === 'alert') {
+        for (const msg of snap._chatHistory) {
+          this._addChatBubble(msg.role, msg.content);
         }
+      }
+    } else if (this.container) {
+      // Apply visual changes in-place — alert state is completely untouched
+      const overlay = this.shadowRoot.querySelector('.pulse-overlay');
+      if (overlay) {
+        overlay.style.opacity = this.settings.opacity;
+        overlay.classList.remove('size-small', 'size-medium', 'size-large');
+        overlay.classList.add(`size-${this.settings.size}`);
+        overlay.classList.remove('top-left', 'top-right', 'bottom-left', 'bottom-right');
+        overlay.classList.add(this.settings.position);
+      }
+      // Update graph settings without rebuilding canvas
+      if (this.graph) {
+        this.graph.duration = this.settings.graphDuration;
+        this.graph.fixedMinBpm = this.settings.graphMinBpm ?? null;
+        this.graph.fixedMaxBpm = this.settings.graphMaxBpm ?? null;
+      }
+    }
+
+    // First-time creation (overlay was absent because shouldShow() was previously false)
+    if (!this.container) {
+      this.createOverlay();
+      this.setupListeners();
+
+      const state = await PulseState.getState();
+      this.connectionState = state.connectionState;
+      if (state.currentBpm !== null) {
+        this.currentBpm = state.currentBpm;
+        if (this.graph) this.graph.addPoint(state.currentBpm, Date.now());
       }
     }
 
