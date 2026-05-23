@@ -7,9 +7,5 @@
 #pulse-overlay-container {
   position: fixed !important;
   z-index: 2147483647 !important;
-  pointer-events: none;
-}
-
-#pulse-overlay-container * {
-  pointer-events: auto;
+  pointer-events: none; /* overridden to auto by JS when alert is active */
 }

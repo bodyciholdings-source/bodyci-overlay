@@ -23,6 +23,11 @@ class PulseOverlay {
     this.alertPanel = null;
     this.alertMessageElement = null;
     this.alertCountdownElement = null;
+    // AI chat
+    this._chatHistory = []; // [{role, content}]
+    this.chatAreaElement = null;
+    this.chatInputElement = null;
+    this.chatSendBtn = null;
     // Store unsubscribe functions for cleanup
     this._unsubscribeState = null;
     this._unsubscribeHR = null;
@@ -158,7 +163,35 @@ class PulseOverlay {
 
     this.alertPanel.appendChild(this.alertMessageElement);
     this.alertPanel.appendChild(this.alertCountdownElement);
+
+    // AI chat area — only visible when alert active + visual + aiChatEnabled
+    this.chatAreaElement = document.createElement('div');
+    this.chatAreaElement.className = 'chat-area';
+
+    const chatInputRow = document.createElement('div');
+    chatInputRow.className = 'chat-input-row';
+
+    this.chatInputElement = document.createElement('input');
+    this.chatInputElement.type = 'text';
+    this.chatInputElement.className = 'chat-input';
+    this.chatInputElement.placeholder = 'Ask for help…';
+    this.chatInputElement.maxLength = 200;
+
+    this.chatSendBtn = document.createElement('button');
+    this.chatSendBtn.className = 'chat-send-btn';
+    this.chatSendBtn.textContent = 'Send';
+
+    chatInputRow.appendChild(this.chatInputElement);
+    chatInputRow.appendChild(this.chatSendBtn);
+
+    this.alertPanel.appendChild(this.chatAreaElement);
+    this.alertPanel.appendChild(chatInputRow);
     overlay.appendChild(this.alertPanel);
+
+    this.chatSendBtn.addEventListener('click', () => this._handleChatSend());
+    this.chatInputElement.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this._handleChatSend();
+    });
 
     this.shadowRoot.appendChild(overlay);
     document.body.appendChild(this.container);
@@ -193,6 +226,7 @@ class PulseOverlay {
       .pulse-overlay {
         position: fixed;
         z-index: 2147483647;
+        pointer-events: none; /* BPM row passes through in all states */
         background: rgba(0, 0, 0, 0.75);
         border-radius: 12px;
         padding: 10px 14px;
@@ -216,6 +250,11 @@ class PulseOverlay {
       .pulse-overlay.size-small { transform: scale(0.8); }
       .pulse-overlay.size-medium { transform: scale(1); }
       .pulse-overlay.size-large { transform: scale(1.2); }
+
+      /* Alert panel and its contents are interactive when alert is active */
+      .pulse-overlay.alert-active .alert-panel {
+        pointer-events: auto;
+      }
 
       /* Alert state */
       .pulse-overlay.alert-active {
@@ -333,6 +372,100 @@ class PulseOverlay {
         color: rgba(255, 255, 255, 0.55);
         font-variant-numeric: tabular-nums;
       }
+
+      /* AI Chat */
+      .chat-area {
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+        width: 220px;
+        max-height: 160px;
+        overflow-y: auto;
+        margin-top: 6px;
+        padding: 6px 0;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.2) transparent;
+      }
+
+      .pulse-overlay.alert-active.chat-visible .chat-area {
+        display: flex;
+      }
+
+      .pulse-overlay.alert-active.chat-visible .chat-input-row {
+        display: flex;
+      }
+
+      .chat-bubble {
+        max-width: 90%;
+        padding: 5px 9px;
+        border-radius: 10px;
+        font-size: 12px;
+        line-height: 1.4;
+        word-wrap: break-word;
+      }
+
+      .chat-bubble.user {
+        align-self: flex-end;
+        background: rgba(38, 198, 218, 0.25);
+        color: #e0f7fa;
+      }
+
+      .chat-bubble.assistant {
+        align-self: flex-start;
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+      }
+
+      .chat-bubble.thinking {
+        align-self: flex-start;
+        background: rgba(255, 255, 255, 0.07);
+        color: rgba(255,255,255,0.45);
+        font-style: italic;
+      }
+
+      .chat-input-row {
+        display: none;
+        gap: 5px;
+        margin-top: 4px;
+        width: 220px;
+      }
+
+      .chat-input {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(38, 198, 218, 0.4);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 12px;
+        padding: 4px 8px;
+        outline: none;
+        font-family: inherit;
+      }
+
+      .chat-input::placeholder {
+        color: rgba(255,255,255,0.35);
+      }
+
+      .chat-send-btn {
+        background: rgba(38, 198, 218, 0.3);
+        border: 1px solid rgba(38, 198, 218, 0.5);
+        border-radius: 6px;
+        color: #4DD0E1;
+        font-size: 11px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-family: inherit;
+        transition: background 0.2s;
+      }
+
+      .chat-send-btn:hover {
+        background: rgba(38, 198, 218, 0.45);
+      }
+
+      .chat-send-btn:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
     `;
   }
 
@@ -410,11 +543,138 @@ class PulseOverlay {
         this._alertInterval = null;
         this.alertState = 'idle';
         this.alertCooldownRemaining = 0;
+        this._clearChat();
       }
       this.updateDisplay();
     }, 1000);
 
     this.updateDisplay();
+  }
+
+  /**
+   * Speak text using the currently-selected voice, cancelling any prior audio.
+   */
+  _speakText(text) {
+    const voiceId = this.settings.selectedVoice || 'standard';
+    const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
+    if (voice.engine === 'elevenlabs' && typeof speakElevenLabs === 'function') {
+      chrome.runtime.sendMessage({ type: 'stopElevenLabs' });
+      speakElevenLabs(text, voice.id).then(success => {
+        if (!success) {
+          chrome.runtime.sendMessage({ type: 'stopChromeTts' });
+          chrome.runtime.sendMessage({ type: 'speak', text });
+        }
+      });
+    } else {
+      chrome.runtime.sendMessage({ type: 'speak', text });
+    }
+  }
+
+  /**
+   * Clear chat history and DOM.
+   */
+  _clearChat() {
+    this._chatHistory = [];
+    if (this.chatAreaElement) {
+      this.chatAreaElement.innerHTML = '';
+    }
+    if (this.chatInputElement) {
+      this.chatInputElement.value = '';
+    }
+  }
+
+  /**
+   * Add a bubble to the chat area and scroll to bottom.
+   */
+  _addChatBubble(role, text) {
+    if (!this.chatAreaElement) return null;
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble ${role}`;
+    bubble.textContent = text;
+    this.chatAreaElement.appendChild(bubble);
+    this.chatAreaElement.scrollTop = this.chatAreaElement.scrollHeight;
+    return bubble;
+  }
+
+  /**
+   * Handle user pressing Send.
+   */
+  _handleChatSend() {
+    if (!this.chatInputElement || !this.chatSendBtn) return;
+    const text = this.chatInputElement.value.trim();
+    if (!text) return;
+    this.chatInputElement.value = '';
+    this.sendChatMessage(text);
+  }
+
+  /**
+   * Send a chat message to OpenAI and display the response.
+   */
+  async sendChatMessage(userText) {
+    const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
+    if (!config || !config.openaiApiKey || config.openaiApiKey === 'PASTE_KEY_HERE') {
+      this._addChatBubble('assistant', 'OpenAI API key not configured. Add it to config.local.js.');
+      return;
+    }
+
+    // Disable input during request
+    if (this.chatSendBtn) this.chatSendBtn.disabled = true;
+    if (this.chatInputElement) this.chatInputElement.disabled = true;
+
+    this._addChatBubble('user', userText);
+    const thinkingBubble = this._addChatBubble('thinking', 'Thinking…');
+
+    this._chatHistory.push({ role: 'user', content: userText });
+
+    const systemMessage = {
+      role: 'system',
+      content: `You are a calm, supportive coach helping a user who's experiencing an elevated heart rate. Their current BPM is ${this.currentBpm || 'unknown'}. Keep responses short (1-3 sentences). Be warm but not corny. Focus on practical, grounding suggestions. Don't diagnose or give medical advice.`
+    };
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.openaiApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: OPENAI_MODEL,
+          messages: [systemMessage, ...this._chatHistory],
+          max_tokens: 120
+        })
+      });
+
+      if (!response.ok) throw new Error(`OpenAI ${response.status}`);
+
+      const data = await response.json();
+      const reply = data.choices[0].message.content.trim();
+
+      this._chatHistory.push({ role: 'assistant', content: reply });
+
+      if (thinkingBubble) {
+        thinkingBubble.className = 'chat-bubble assistant';
+        thinkingBubble.textContent = reply;
+        this.chatAreaElement.scrollTop = this.chatAreaElement.scrollHeight;
+      }
+
+      this._speakText(reply);
+    } catch (e) {
+      console.warn('Bodyci: AI chat error:', e);
+      if (thinkingBubble) {
+        thinkingBubble.className = 'chat-bubble assistant';
+        thinkingBubble.textContent = "Couldn't reach the AI. Try again?";
+        this.chatAreaElement.scrollTop = this.chatAreaElement.scrollHeight;
+      }
+      // Remove last user message from history on error so they can retry
+      this._chatHistory.pop();
+    } finally {
+      if (this.chatSendBtn) this.chatSendBtn.disabled = false;
+      if (this.chatInputElement) {
+        this.chatInputElement.disabled = false;
+        this.chatInputElement.focus();
+      }
+    }
   }
 
   /**
@@ -510,6 +770,10 @@ class PulseOverlay {
     this.alertPanel = null;
     this.alertMessageElement = null;
     this.alertCountdownElement = null;
+    this.chatAreaElement = null;
+    this.chatInputElement = null;
+    this.chatSendBtn = null;
+    this._chatHistory = [];
   }
 
   /**
@@ -540,8 +804,15 @@ class PulseOverlay {
       overlay.classList.add('alert-active');
       this.alertMessageElement.textContent = this.settings.alertMessage || 'Relax';
       this.alertCountdownElement.textContent = `Cooling down: ${this.alertCooldownRemaining}s`;
+      const showChat = !!(this.settings.aiChatEnabled);
+      overlay.classList.toggle('chat-visible', showChat);
+      // Allow the container to receive pointer events so the alert panel is clickable
+      this.container.style.pointerEvents = 'auto';
     } else {
       overlay.classList.remove('alert-active');
+      overlay.classList.remove('chat-visible');
+      // Restore pass-through so idle BPM display never blocks page clicks
+      this.container.style.pointerEvents = '';
     }
   }
 

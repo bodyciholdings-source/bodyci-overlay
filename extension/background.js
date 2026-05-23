@@ -223,6 +223,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'stopChromeTts') {
+    chrome.tts.stop();
+    return true;
+  }
+
+  if (message.type === 'stopElevenLabs') {
+    (async () => {
+      try {
+        const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+        if (contexts.length > 0) {
+          chrome.runtime.sendMessage({ type: '_offscreenStop' });
+        }
+      } catch (e) { /* offscreen not running */ }
+    })();
+    return true;
+  }
+
   if (message.type === 'elevenLabsSpeak') {
     (async () => {
       try {

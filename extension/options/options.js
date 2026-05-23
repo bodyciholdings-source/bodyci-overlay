@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const testAlertFeedback = document.getElementById('test-alert-feedback');
   const voiceSelect = document.getElementById('voice-select');
   const voiceStatus = document.getElementById('voice-status');
+  const aiChatEnabled = document.getElementById('ai-chat-enabled');
 
   // Load settings
   const settings = await PulseState.getSettings();
@@ -50,6 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertCooldown.value = settings.alertCooldown;
   alertMessage.value = settings.alertMessage;
   alertType.value = settings.alertType;
+  aiChatEnabled.checked = settings.aiChatEnabled;
 
   // Populate voice dropdown from VOICE_OPTIONS
   const elevenLabsReady = typeof BODYCI_CONFIG !== 'undefined' &&
@@ -109,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertMessage.addEventListener('change', () => saveSettings());
   alertType.addEventListener('change', () => saveSettings());
   voiceSelect.addEventListener('change', () => saveSettings());
+  aiChatEnabled.addEventListener('change', () => saveSettings());
 
   testAlertBtn.addEventListener('click', async () => {
     const type = alertType.value;
@@ -174,7 +177,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       alertCooldown: parseInt(alertCooldown.value) || 60,
       alertMessage: alertMessage.value.trim() || 'Relax',
       alertType: alertType.value,
-      selectedVoice: voiceSelect.value
+      selectedVoice: voiceSelect.value,
+      aiChatEnabled: aiChatEnabled.checked
     };
 
     await chrome.storage.sync.set(newSettings);

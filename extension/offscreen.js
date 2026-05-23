@@ -3,8 +3,25 @@
  * Receives ElevenLabs TTS requests from the background, fetches audio, and plays it.
  */
 
+let currentAudio = null;
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === '_offscreenStop') {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (message.type !== '_offscreenPlay') return;
+
+  // Stop any currently-playing audio before starting new playback
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
 
   playElevenLabs(message.text, message.voiceId)
     .then(success => sendResponse({ success }))
@@ -39,8 +56,9 @@ async function playElevenLabs(text, voiceId) {
 
   await new Promise((resolve, reject) => {
     const audio = new Audio(url);
-    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-    audio.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    currentAudio = audio;
+    audio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; resolve(); };
+    audio.onerror = (e) => { URL.revokeObjectURL(url); currentAudio = null; reject(e); };
     audio.play().catch(reject);
   });
 

@@ -17,8 +17,11 @@ const PULSE_DEFAULTS = {
   alertCooldown: 60,
   alertMessage: 'Relax',
   alertType: 'visual',
-  selectedVoice: 'standard'
+  selectedVoice: 'standard',
+  aiChatEnabled: false
 };
+
+const OPENAI_MODEL = 'gpt-4o-mini';
 
 // Add new voices here - they appear in the options dropdown automatically.
 const VOICE_OPTIONS = [
@@ -40,4 +43,5 @@ if (typeof window !== 'undefined') {
   window.PULSE_DEFAULTS = PULSE_DEFAULTS;
   window.VOICE_OPTIONS = VOICE_OPTIONS;
   window.PULSE_STATE_LABELS = PULSE_STATE_LABELS;
+  window.OPENAI_MODEL = OPENAI_MODEL;
 }
