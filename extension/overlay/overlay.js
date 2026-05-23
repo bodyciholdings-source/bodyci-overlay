@@ -149,12 +149,7 @@ class PulseOverlay {
     this.bpmElement.innerHTML = '<span class="bpm-value">--</span><span class="bpm-label">BPM</span>';
     bpmRow.appendChild(this.bpmElement);
 
-    // Alert message — hidden in idle, replaces BPM display in alert state, centered in available space
-    this.alertMessageElement = document.createElement('div');
-    this.alertMessageElement.className = 'alert-message';
-    bpmRow.appendChild(this.alertMessageElement);
-
-    // Close button — anchored to far right of bpmRow, hidden until alert+chat is visible
+    // Close button — pushed to far right of bpmRow by margin-left:auto in CSS
     this.chatCloseBtn = document.createElement('button');
     this.chatCloseBtn.className = 'chat-close-btn';
     this.chatCloseBtn.textContent = '×';
@@ -183,6 +178,11 @@ class PulseOverlay {
     // Alert panel — always present, only visible in alert state
     this.alertPanel = document.createElement('div');
     this.alertPanel.className = 'alert-panel';
+
+    // Alert message is the first item in the panel (below the always-visible BPM row)
+    this.alertMessageElement = document.createElement('div');
+    this.alertMessageElement.className = 'alert-message';
+    this.alertPanel.appendChild(this.alertMessageElement);
 
     this.alertCountdownElement = document.createElement('div');
     this.alertCountdownElement.className = 'alert-countdown';
@@ -328,10 +328,6 @@ class PulseOverlay {
       }
 
       /* Alert state */
-      .pulse-overlay.alert-active .bpm-row {
-        align-items: flex-start;
-      }
-
       .pulse-overlay.alert-active {
         border-color: #26C6DA;
         background: rgba(0, 12, 20, 0.88);
@@ -435,9 +431,6 @@ class PulseOverlay {
       }
 
       .alert-message {
-        display: none;
-        flex: 1;
-        min-width: 0;
         text-align: center;
         word-break: break-word;
         overflow-wrap: break-word;
@@ -447,14 +440,6 @@ class PulseOverlay {
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: #4DD0E1;
-      }
-
-      .pulse-overlay.alert-active .alert-message {
-        display: block;
-      }
-
-      .pulse-overlay.alert-active .bpm-display {
-        display: none;
       }
 
       .alert-countdown {
@@ -471,6 +456,7 @@ class PulseOverlay {
       .chat-close-btn {
         display: none;
         flex-shrink: 0;
+        margin-left: auto;
         background: none;
         border: none;
         color: rgba(255, 255, 255, 0.35);
