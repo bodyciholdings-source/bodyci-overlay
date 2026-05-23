@@ -53,14 +53,20 @@ async function playElevenLabs(text, voiceId) {
 
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  currentAudio = audio;
 
-  await new Promise((resolve, reject) => {
-    const audio = new Audio(url);
-    currentAudio = audio;
-    audio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; resolve(); };
-    audio.onerror = (e) => { URL.revokeObjectURL(url); currentAudio = null; reject(e); };
-    audio.play().catch(reject);
-  });
+  // Revoke the blob URL and clear the reference when playback finishes naturally.
+  // Use identity check so a subsequent _offscreenStop doesn't clear a newer audio's ref.
+  audio.onended = () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; };
+  audio.onerror = () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; };
 
-  return true;
+  // Respond to the caller as soon as playback starts — NOT when it ends.
+  // Waiting for onended keeps the message channel (and the MV3 service worker) alive
+  // for the full audio duration, which can exceed Chrome's ~30s SW idle timeout.
+  // When the SW is suspended mid-playback the channel breaks, speakElevenLabs() resolves
+  // false, and the chrome.tts fallback fires incorrectly. Resolving here (~200ms after
+  // fetch) keeps the channel lifetime under a second regardless of clip length.
+  await audio.play(); // throws if autoplay is blocked (true failure → caller falls back)
+  return true;        // audio plays on independently in the offscreen document
 }
