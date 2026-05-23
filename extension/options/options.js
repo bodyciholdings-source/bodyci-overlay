@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const voiceSelect = document.getElementById('voice-select');
   const voiceStatus = document.getElementById('voice-status');
   const aiChatEnabled = document.getElementById('ai-chat-enabled');
+  const aiGeneratedMessage = document.getElementById('ai-generated-message');
 
   // Load settings
   const settings = await PulseState.getSettings();
@@ -52,6 +53,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertMessage.value = settings.alertMessage;
   alertType.value = settings.alertType;
   aiChatEnabled.checked = settings.aiChatEnabled;
+  aiGeneratedMessage.checked = settings.aiGeneratedMessage;
 
   // Populate voice dropdown from VOICE_OPTIONS
   const elevenLabsReady = typeof BODYCI_CONFIG !== 'undefined' &&
@@ -111,7 +113,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   alertMessage.addEventListener('change', () => saveSettings());
   alertType.addEventListener('change', () => saveSettings());
   voiceSelect.addEventListener('change', () => saveSettings());
-  aiChatEnabled.addEventListener('change', () => saveSettings());
+  aiChatEnabled.addEventListener('change', () => {
+    // Turning off AI chat also turns off AI-generated messages
+    if (!aiChatEnabled.checked) {
+      aiGeneratedMessage.checked = false;
+    }
+    saveSettings();
+  });
+  aiGeneratedMessage.addEventListener('change', () => {
+    // AI-generated messages requires AI chat — auto-enable it
+    if (aiGeneratedMessage.checked && !aiChatEnabled.checked) {
+      aiChatEnabled.checked = true;
+    }
+    saveSettings();
+  });
 
   testAlertBtn.addEventListener('click', async () => {
     const type = alertType.value;
@@ -178,7 +193,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       alertMessage: alertMessage.value.trim() || 'Relax',
       alertType: alertType.value,
       selectedVoice: voiceSelect.value,
-      aiChatEnabled: aiChatEnabled.checked
+      aiChatEnabled: aiChatEnabled.checked,
+      aiGeneratedMessage: aiGeneratedMessage.checked
     };
 
     await chrome.storage.sync.set(newSettings);

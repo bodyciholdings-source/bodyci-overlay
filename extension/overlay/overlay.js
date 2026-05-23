@@ -25,6 +25,7 @@ class PulseOverlay {
     this.alertCountdownElement = null;
     // AI chat
     this._chatHistory = []; // [{role, content}]
+    this._alertDisplayMessage = null; // overrides preset message when AI generates one
     this.chatAreaElement = null;
     this.chatInputElement = null;
     this.chatSendBtn = null;
@@ -521,19 +522,47 @@ class PulseOverlay {
     this._alertShowsVisual = alertType === 'visual' || alertType === 'both';
     this.alertState = 'alert';
     this.alertCooldownRemaining = this.settings.alertCooldown || 60;
+    this._alertDisplayMessage = null;
 
-    // Speak once at trigger time
-    if (alertType === 'audio' || alertType === 'both') {
-      const text = this.settings.alertMessage || 'Relax';
-      const voiceId = this.settings.selectedVoice || 'standard';
-      const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
-      if (voice.engine === 'elevenlabs' && typeof speakElevenLabs === 'function') {
-        speakElevenLabs(text, voice.id).then(success => {
-          if (!success) chrome.runtime.sendMessage({ type: 'speak', text });
-        });
-      } else {
-        chrome.runtime.sendMessage({ type: 'speak', text });
+    const useAiMessage = !!(this.settings.aiGeneratedMessage && this.settings.aiChatEnabled);
+
+    if (useAiMessage) {
+      // Show overlay immediately with empty message area; text streams in within ~200ms
+      this._alertDisplayMessage = '';
+      this.updateDisplay();
+
+      this._generateOpeningMessage().then(reply => {
+        if (this.alertState !== 'alert') return; // alert ended before AI replied
+        if (reply) {
+          this._alertDisplayMessage = reply;
+          this._chatHistory.push({ role: 'assistant', content: reply });
+          if (alertType === 'audio' || alertType === 'both') {
+            this._speakText(reply);
+          }
+        } else {
+          // Fallback to preset on error
+          this._alertDisplayMessage = null;
+          if (alertType === 'audio' || alertType === 'both') {
+            this._speakText(this.settings.alertMessage || 'Relax');
+          }
+        }
+        this.updateDisplay();
+      });
+    } else {
+      // Normal mode: show preset, speak if audio
+      if (alertType === 'audio' || alertType === 'both') {
+        const text = this.settings.alertMessage || 'Relax';
+        const voiceId = this.settings.selectedVoice || 'standard';
+        const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
+        if (voice.engine === 'elevenlabs' && typeof speakElevenLabs === 'function') {
+          speakElevenLabs(text, voice.id).then(success => {
+            if (!success) chrome.runtime.sendMessage({ type: 'speak', text });
+          });
+        } else {
+          chrome.runtime.sendMessage({ type: 'speak', text });
+        }
       }
+      this.updateDisplay();
     }
 
     this._alertInterval = setInterval(() => {
@@ -547,8 +576,6 @@ class PulseOverlay {
       }
       this.updateDisplay();
     }, 1000);
-
-    this.updateDisplay();
   }
 
   /**
@@ -575,12 +602,67 @@ class PulseOverlay {
    */
   _clearChat() {
     this._chatHistory = [];
+    this._alertDisplayMessage = null;
     if (this.chatAreaElement) {
       this.chatAreaElement.innerHTML = '';
     }
     if (this.chatInputElement) {
       this.chatInputElement.value = '';
     }
+  }
+
+  /**
+   * Shared SSE streaming helper for OpenAI chat completions.
+   * Calls onChunk(accumulatedText) on each delta. Returns full text when done,
+   * or whatever was accumulated if the stream ends early.
+   */
+  async _streamOpenAI(messages, maxTokens, onChunk) {
+    const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
+    if (!config || !config.openaiApiKey || config.openaiApiKey === 'PASTE_KEY_HERE') return null;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.openaiApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ model: OPENAI_MODEL, messages, max_tokens: maxTokens, stream: true })
+    });
+
+    if (!response.ok) throw new Error(`OpenAI ${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') return fullText;
+          try {
+            const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
+            if (delta) {
+              fullText += delta;
+              onChunk(fullText);
+            }
+          } catch { /* skip malformed chunk */ }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return fullText || null;
   }
 
   /**
@@ -608,7 +690,7 @@ class PulseOverlay {
   }
 
   /**
-   * Send a chat message to OpenAI and display the response.
+   * Send a chat message to OpenAI and stream the response into a chat bubble.
    */
   async sendChatMessage(userText) {
     const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
@@ -617,63 +699,88 @@ class PulseOverlay {
       return;
     }
 
-    // Disable input during request
     if (this.chatSendBtn) this.chatSendBtn.disabled = true;
     if (this.chatInputElement) this.chatInputElement.disabled = true;
 
     this._addChatBubble('user', userText);
-    const thinkingBubble = this._addChatBubble('thinking', 'Thinking…');
-
     this._chatHistory.push({ role: 'user', content: userText });
+
+    // Empty bubble created immediately — text streams in word by word
+    const assistantBubble = this._addChatBubble('assistant', '');
 
     const systemMessage = {
       role: 'system',
       content: `You are a calm, supportive coach helping a user who's experiencing an elevated heart rate. Their current BPM is ${this.currentBpm || 'unknown'}. Keep responses short (1-3 sentences). Be warm but not corny. Focus on practical, grounding suggestions. Don't diagnose or give medical advice.`
     };
 
+    let fullText = '';
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${config.openaiApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: OPENAI_MODEL,
-          messages: [systemMessage, ...this._chatHistory],
-          max_tokens: 120
-        })
-      });
+      fullText = await this._streamOpenAI(
+        [systemMessage, ...this._chatHistory],
+        120,
+        (accumulated) => {
+          if (assistantBubble) {
+            assistantBubble.textContent = accumulated;
+            if (this.chatAreaElement) this.chatAreaElement.scrollTop = this.chatAreaElement.scrollHeight;
+          }
+        }
+      );
 
-      if (!response.ok) throw new Error(`OpenAI ${response.status}`);
-
-      const data = await response.json();
-      const reply = data.choices[0].message.content.trim();
-
-      this._chatHistory.push({ role: 'assistant', content: reply });
-
-      if (thinkingBubble) {
-        thinkingBubble.className = 'chat-bubble assistant';
-        thinkingBubble.textContent = reply;
-        this.chatAreaElement.scrollTop = this.chatAreaElement.scrollHeight;
-      }
-
-      this._speakText(reply);
+      if (!fullText) throw new Error('empty');
+      this._chatHistory.push({ role: 'assistant', content: fullText });
+      this._speakText(fullText);
     } catch (e) {
       console.warn('Bodyci: AI chat error:', e);
-      if (thinkingBubble) {
-        thinkingBubble.className = 'chat-bubble assistant';
-        thinkingBubble.textContent = "Couldn't reach the AI. Try again?";
-        this.chatAreaElement.scrollTop = this.chatAreaElement.scrollHeight;
+      if (assistantBubble) {
+        if (fullText) {
+          // Show what arrived before the failure
+          assistantBubble.textContent = fullText + ' [interrupted]';
+          this._chatHistory.push({ role: 'assistant', content: fullText });
+        } else {
+          assistantBubble.textContent = "Couldn't reach the AI. Try again?";
+          this._chatHistory.pop(); // let user retry with same message
+        }
+        if (this.chatAreaElement) this.chatAreaElement.scrollTop = this.chatAreaElement.scrollHeight;
       }
-      // Remove last user message from history on error so they can retry
-      this._chatHistory.pop();
     } finally {
       if (this.chatSendBtn) this.chatSendBtn.disabled = false;
       if (this.chatInputElement) {
         this.chatInputElement.disabled = false;
         this.chatInputElement.focus();
       }
+    }
+  }
+
+  /**
+   * Stream an AI-generated opening message into alertMessageElement.
+   * Returns the full text (or partial on error) so the caller can add it to
+   * _chatHistory and speak it. Returns null if no API key, triggering preset fallback.
+   */
+  async _generateOpeningMessage() {
+    const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
+    if (!config || !config.openaiApiKey || config.openaiApiKey === 'PASTE_KEY_HERE') return null;
+
+    const systemContent = `You are a calm, supportive coach checking in with someone whose heart rate just spiked. Their current BPM is ${this.currentBpm || 'unknown'} and their threshold is ${this.settings.alertThreshold}. They previously set their alert message to '${this.settings.alertMessage || 'Relax'}' — that's a hint at what they want to be reminded of.\n\nGenerate a short opening (1-2 sentences) that's mostly an open-ended check-in — ask what's going on, how they're feeling, or what they're in the middle of. Occasionally you can briefly mention a grounding suggestion at the end, but the main goal is to invite them to share. Be warm and curious, not clinical. Don't be corny.`;
+
+    let fullText = '';
+    try {
+      fullText = await this._streamOpenAI(
+        [
+          { role: 'system', content: systemContent },
+          { role: 'user', content: 'Generate the opening check-in.' }
+        ],
+        80,
+        (accumulated) => {
+          // Keep _alertDisplayMessage in sync so the every-second updateDisplay() tick
+          // shows the latest partial text rather than overwriting with stale data
+          this._alertDisplayMessage = accumulated;
+          if (this.alertMessageElement) this.alertMessageElement.textContent = accumulated;
+        }
+      );
+      return fullText || null;
+    } catch (e) {
+      console.warn('Bodyci: AI opening message failed:', e);
+      return fullText || null; // partial text beats a blank screen; null triggers preset
     }
   }
 
@@ -774,6 +881,7 @@ class PulseOverlay {
     this.chatInputElement = null;
     this.chatSendBtn = null;
     this._chatHistory = [];
+    this._alertDisplayMessage = null;
   }
 
   /**
@@ -802,7 +910,7 @@ class PulseOverlay {
     // Update alert state
     if (this.alertState === 'alert' && this._alertShowsVisual) {
       overlay.classList.add('alert-active');
-      this.alertMessageElement.textContent = this.settings.alertMessage || 'Relax';
+      this.alertMessageElement.textContent = this._alertDisplayMessage ?? (this.settings.alertMessage || 'Relax');
       this.alertCountdownElement.textContent = `Cooling down: ${this.alertCooldownRemaining}s`;
       const showChat = !!(this.settings.aiChatEnabled);
       overlay.classList.toggle('chat-visible', showChat);

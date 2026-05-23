@@ -18,7 +18,8 @@ const PULSE_DEFAULTS = {
   alertMessage: 'Relax',
   alertType: 'visual',
   selectedVoice: 'standard',
-  aiChatEnabled: false
+  aiChatEnabled: false,
+  aiGeneratedMessage: false
 };
 
 const OPENAI_MODEL = 'gpt-4o-mini';
