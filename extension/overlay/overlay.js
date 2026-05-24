@@ -507,9 +507,9 @@ class PulseOverlay {
         line-height: 1.3;
         font-size: 16px;
         font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: #2563eb;
+        letter-spacing: 0.01em;
+        text-transform: none;
+        color: #0f172a;
       }
 
       .alert-countdown {
