@@ -333,7 +333,9 @@ class PulseOverlay {
         flex-direction: column;
         align-items: stretch;
         gap: 0;
-        max-width: 380px;
+        max-width: min(360px, calc(100vw - 40px));
+        max-height: calc(100vh - 80px);
+        overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         color: #0f172a;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.08);
@@ -344,10 +346,10 @@ class PulseOverlay {
         transition: border-color 0.4s ease, box-shadow 0.4s ease;
       }
 
-      .pulse-overlay.top-left { top: 20px; left: 20px; }
-      .pulse-overlay.top-right { top: 20px; right: 20px; }
-      .pulse-overlay.bottom-left { bottom: 20px; left: 20px; }
-      .pulse-overlay.bottom-right { bottom: 20px; right: 20px; }
+      .pulse-overlay.top-left    { top: 20px; left: 20px;    transform-origin: top left; }
+      .pulse-overlay.top-right   { top: 20px; right: 20px;   transform-origin: top right; }
+      .pulse-overlay.bottom-left { bottom: 20px; left: 20px;  transform-origin: bottom left; }
+      .pulse-overlay.bottom-right { bottom: 20px; right: 20px; transform-origin: bottom right; }
 
       .pulse-overlay.size-small { transform: scale(0.8); }
       .pulse-overlay.size-medium { transform: scale(1); }
@@ -518,7 +520,7 @@ class PulseOverlay {
 
       /* AI Chat */
       .chat-section {
-        width: 220px;
+        width: 100%;
       }
 
       .chat-close-btn {
@@ -549,8 +551,8 @@ class PulseOverlay {
         display: none;
         flex-direction: column;
         gap: 6px;
-        width: 220px;
-        max-height: 160px;
+        width: 100%;
+        max-height: min(240px, 35vh);
         overflow-y: auto;
         margin-top: 6px;
         padding: 6px 0;
@@ -597,7 +599,7 @@ class PulseOverlay {
         display: none;
         gap: 5px;
         margin-top: 4px;
-        width: 220px;
+        width: 100%;
       }
 
       .chat-input {
