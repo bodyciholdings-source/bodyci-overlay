@@ -129,18 +129,44 @@ class PulseOverlay {
     const bpmRow = document.createElement('div');
     bpmRow.className = 'bpm-row';
 
-    // Status indicator
-    this.statusElement = document.createElement('div');
-    this.statusElement.className = 'status-indicator status-disconnected';
-    bpmRow.appendChild(this.statusElement);
-
     // Heart icon (for standard mode)
     this.heartElement = document.createElement('div');
     this.heartElement.className = 'heart-icon';
-    this.heartElement.innerHTML = this.getHeartSvg();
     if (this.settings.displayMode === 'minimal') {
       this.heartElement.style.display = 'none';
     }
+
+    // SVG ring — two circles: faint base (full) + solid arc (rotating)
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const ringSvg = document.createElementNS(svgNS, 'svg');
+    ringSvg.setAttribute('class', 'heart-ring-svg');
+    ringSvg.setAttribute('viewBox', '0 0 50 50');
+    ringSvg.setAttribute('aria-hidden', 'true');
+
+    const baseCircle = document.createElementNS(svgNS, 'circle');
+    baseCircle.setAttribute('class', 'ring-base');
+    baseCircle.setAttribute('cx', '25');
+    baseCircle.setAttribute('cy', '25');
+    baseCircle.setAttribute('r', '23');
+
+    // 90° solid arc: circumference = 2π×23 ≈ 144.51, quarter = 36.13
+    const arcCircle = document.createElementNS(svgNS, 'circle');
+    arcCircle.setAttribute('class', 'ring-arc');
+    arcCircle.setAttribute('cx', '25');
+    arcCircle.setAttribute('cy', '25');
+    arcCircle.setAttribute('r', '23');
+    arcCircle.setAttribute('stroke-dasharray', '36.13 108.38');
+
+    ringSvg.appendChild(baseCircle);
+    ringSvg.appendChild(arcCircle);
+    this.heartElement.appendChild(ringSvg);
+
+    // Heart image (sits inside the ring)
+    const heartImg = document.createElement('img');
+    heartImg.src = chrome.runtime.getURL('icons/heart.png');
+    heartImg.alt = '';
+    this.heartElement.appendChild(heartImg);
+
     bpmRow.appendChild(this.heartElement);
 
     // BPM display
@@ -296,9 +322,9 @@ class PulseOverlay {
       .pulse-overlay {
         position: fixed;
         z-index: 2147483647;
-        pointer-events: none; /* BPM row passes through in all states */
-        background: rgba(0, 0, 0, 0.75);
-        border-radius: 12px;
+        pointer-events: none;
+        background: #ffffff;
+        border-radius: 24px;
         padding: 10px 14px;
         display: flex;
         flex-direction: column;
@@ -306,11 +332,13 @@ class PulseOverlay {
         gap: 0;
         max-width: 380px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        color: white;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        color: #0f172a;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.08);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         user-select: none;
         border: 2px solid transparent;
-        transition: opacity 0.3s ease, border-color 0.4s ease, box-shadow 0.4s ease, background 0.4s ease;
+        transition: border-color 0.4s ease, box-shadow 0.4s ease;
       }
 
       .pulse-overlay.top-left { top: 20px; left: 20px; }
@@ -329,9 +357,8 @@ class PulseOverlay {
 
       /* Alert state */
       .pulse-overlay.alert-active {
-        border-color: #26C6DA;
-        background: rgba(0, 12, 20, 0.88);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 18px rgba(38, 198, 218, 0.35);
+        border-color: #2563eb;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.08), 0 0 18px rgba(37, 99, 235, 0.35);
       }
 
       .bpm-row {
@@ -340,35 +367,71 @@ class PulseOverlay {
         gap: 8px;
       }
 
-      .status-indicator {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        flex-shrink: 0;
-      }
-
-      .status-connected { background: #4CAF50; box-shadow: 0 0 6px #4CAF50; }
-      .status-connecting { background: #FFC107; animation: pulse-status 1s ease-in-out infinite; }
-      .status-scanning { background: #2196F3; animation: pulse-status 1s ease-in-out infinite; }
-      .status-disconnected { background: #F44336; }
-
-      @keyframes pulse-status {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-      }
-
       .heart-icon {
         width: 50px;
         height: 50px;
         flex-shrink: 0;
+        position: relative;
+        padding: 7px;
+        box-sizing: border-box;
       }
 
       .heart-icon img {
         width: 100%;
         height: 100%;
         display: block;
+        position: relative;
+        z-index: 1;
       }
 
+      /* SVG ring: covers the full icon div, rotates continuously */
+      .heart-ring-svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        overflow: visible;
+        animation: ring-spin 2.5s linear infinite;
+      }
+
+      @keyframes ring-spin {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
+      }
+
+      /* Faint full-circle base */
+      .ring-base {
+        fill: none;
+        stroke: rgba(148, 163, 184, 0.35);
+        stroke-width: 4;
+        transition: stroke 0.3s ease;
+      }
+
+      /* Solid quarter-arc that sweeps around */
+      .ring-arc {
+        fill: none;
+        stroke: #2563eb;
+        stroke-width: 4;
+        stroke-linecap: round;
+      }
+
+      /* Connected: full-opacity blue */
+      .heart-icon.ring-connected    .ring-base { stroke: rgba(37, 99, 235, 0.2); }
+      .heart-icon.ring-connected    .ring-arc  { stroke: #2563eb; }
+
+      /* Connecting / Scanning: same arc, slightly dimmer */
+      .heart-icon.ring-connecting   .ring-base,
+      .heart-icon.ring-scanning     .ring-base { stroke: rgba(37, 99, 235, 0.15); }
+      .heart-icon.ring-connecting   .ring-arc,
+      .heart-icon.ring-scanning     .ring-arc  { stroke: rgba(37, 99, 235, 0.65); }
+
+      /* Disconnected: gray base, arc hidden, rotation stopped */
+      .heart-icon.ring-disconnected .ring-base { stroke: rgba(148, 163, 184, 0.35); }
+      .heart-icon.ring-disconnected .ring-arc  { display: none; }
+      .heart-icon.ring-disconnected .heart-ring-svg { animation: none; }
+
+      /* Heartbeat: only the img scales — SVG ring stays fixed */
       .heart-icon.beating img {
         animation: heartbeat 0.8s ease-in-out infinite;
       }
@@ -388,23 +451,25 @@ class PulseOverlay {
 
       .bpm-value {
         font-size: 28px;
-        font-weight: 600;
+        font-weight: 700;
         line-height: 1;
         min-width: 45px;
+        color: #0f172a;
       }
 
       .bpm-label {
         font-size: 12px;
-        opacity: 0.7;
+        color: #64748b;
         text-transform: uppercase;
+        letter-spacing: 0.05em;
       }
 
       .pulse-overlay.disconnected {
-        opacity: 0.6;
+        opacity: 0.55;
       }
 
       .pulse-overlay.disconnected .bpm-value {
-        color: #999;
+        color: #94a3b8;
       }
 
       .graph-container {
@@ -423,7 +488,7 @@ class PulseOverlay {
         gap: 4px;
         margin-top: 8px;
         padding-top: 8px;
-        border-top: 1px solid rgba(38, 198, 218, 0.3);
+        border-top: 1px solid rgba(37, 99, 235, 0.15);
       }
 
       .pulse-overlay.alert-active .alert-panel {
@@ -435,16 +500,16 @@ class PulseOverlay {
         word-break: break-word;
         overflow-wrap: break-word;
         line-height: 1.3;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 700;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: #4DD0E1;
+        color: #2563eb;
       }
 
       .alert-countdown {
         font-size: 11px;
-        color: rgba(255, 255, 255, 0.55);
+        color: #94a3b8;
         font-variant-numeric: tabular-nums;
       }
 
@@ -459,8 +524,8 @@ class PulseOverlay {
         margin-left: auto;
         background: none;
         border: none;
-        color: rgba(255, 255, 255, 0.35);
-        font-size: 14px;
+        color: #94a3b8;
+        font-size: 16px;
         line-height: 1;
         padding: 2px 4px;
         cursor: pointer;
@@ -469,7 +534,7 @@ class PulseOverlay {
       }
 
       .chat-close-btn:hover {
-        color: rgba(255, 255, 255, 0.75);
+        color: #0f172a;
       }
 
       .pulse-overlay.alert-active.chat-visible .chat-close-btn {
@@ -487,7 +552,7 @@ class PulseOverlay {
         margin-top: 6px;
         padding: 6px 0;
         scrollbar-width: thin;
-        scrollbar-color: rgba(255,255,255,0.2) transparent;
+        scrollbar-color: rgba(15, 23, 42, 0.1) transparent;
       }
 
       .pulse-overlay.alert-active.chat-visible .chat-area {
@@ -500,29 +565,28 @@ class PulseOverlay {
 
       .chat-bubble {
         max-width: 90%;
-        padding: 5px 9px;
-        border-radius: 10px;
+        padding: 6px 10px;
+        border-radius: 16px;
         font-size: 12px;
         line-height: 1.4;
         word-wrap: break-word;
+        color: #0f172a;
       }
 
       .chat-bubble.user {
         align-self: flex-end;
-        background: rgba(38, 198, 218, 0.25);
-        color: #e0f7fa;
+        background: rgba(37, 99, 235, 0.1);
       }
 
       .chat-bubble.assistant {
         align-self: flex-start;
-        background: rgba(255, 255, 255, 0.1);
-        color: #fff;
+        background: #f8fafc;
       }
 
       .chat-bubble.thinking {
         align-self: flex-start;
-        background: rgba(255, 255, 255, 0.07);
-        color: rgba(255,255,255,0.45);
+        background: #f1f5f9;
+        color: #94a3b8;
         font-style: italic;
       }
 
@@ -535,34 +599,41 @@ class PulseOverlay {
 
       .chat-input {
         flex: 1;
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(38, 198, 218, 0.4);
-        border-radius: 6px;
-        color: #fff;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        color: #0f172a;
         font-size: 12px;
         padding: 4px 8px;
         outline: none;
         font-family: inherit;
+        transition: border-color 0.15s;
+      }
+
+      .chat-input:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
       }
 
       .chat-input::placeholder {
-        color: rgba(255,255,255,0.35);
+        color: #94a3b8;
       }
 
       .chat-send-btn {
-        background: rgba(38, 198, 218, 0.3);
-        border: 1px solid rgba(38, 198, 218, 0.5);
-        border-radius: 6px;
-        color: #4DD0E1;
+        background: #2563eb;
+        border: none;
+        border-radius: 8px;
+        color: #ffffff;
         font-size: 11px;
-        padding: 4px 8px;
+        font-weight: 600;
+        padding: 4px 10px;
         cursor: pointer;
         font-family: inherit;
-        transition: background 0.2s;
+        transition: background 0.15s;
       }
 
       .chat-send-btn:hover {
-        background: rgba(38, 198, 218, 0.45);
+        background: #1d4ed8;
       }
 
       .chat-send-btn:disabled {
@@ -579,9 +650,9 @@ class PulseOverlay {
         height: 28px;
         padding: 0;
         border-radius: 50%;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.4);
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        color: #64748b;
         cursor: pointer;
         flex-shrink: 0;
         pointer-events: auto;
@@ -604,29 +675,29 @@ class PulseOverlay {
       }
 
       .chat-mic-btn.mic-listening {
-        border-color: #ef5350;
-        background: rgba(239, 83, 80, 0.15);
-        color: #ef5350;
+        border-color: #ef4444;
+        background: rgba(239, 68, 68, 0.08);
+        color: #ef4444;
         animation: mic-pulse 1.4s ease-in-out infinite;
       }
 
       .chat-mic-btn.mic-processing {
-        border-color: rgba(38, 198, 218, 0.35);
-        background: rgba(38, 198, 218, 0.06);
-        color: rgba(38, 198, 218, 0.45);
+        border-color: rgba(37, 99, 235, 0.3);
+        background: rgba(37, 99, 235, 0.05);
+        color: rgba(37, 99, 235, 0.5);
         cursor: default;
       }
 
       .chat-mic-btn.mic-speaking {
-        border-color: rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.04);
-        color: rgba(255, 255, 255, 0.2);
+        border-color: #e2e8f0;
+        background: #f1f5f9;
+        color: #cbd5e1;
         cursor: default;
       }
 
       @keyframes mic-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 83, 80, 0.5); }
-        50% { box-shadow: 0 0 0 6px rgba(239, 83, 80, 0); }
+        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+        50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
       }
     `;
   }
@@ -1270,8 +1341,9 @@ class PulseOverlay {
 
     const overlay = this.shadowRoot.querySelector('.pulse-overlay');
 
-    // Update status indicator
-    this.statusElement.className = `status-indicator status-${this.connectionState}`;
+    // Update connection ring on heart icon
+    this.heartElement.classList.remove('ring-connected', 'ring-connecting', 'ring-scanning', 'ring-disconnected');
+    this.heartElement.classList.add(`ring-${this.connectionState}`);
 
     // Update BPM
     const bpmValue = this.bpmElement.querySelector('.bpm-value');
