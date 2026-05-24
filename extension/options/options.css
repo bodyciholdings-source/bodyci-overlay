@@ -240,6 +240,38 @@ input[type="checkbox"] {
   background: #e0e0e0;
 }
 
+.cloud-sync-subtitle {
+  margin-bottom: 12px;
+}
+
+.cloud-auth-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.cloud-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #555;
+}
+
+.cloud-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ccc;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.cloud-status-dot.signed-in {
+  background: #22c55e;
+}
+
 footer {
   text-align: center;
   color: #999;

@@ -34,6 +34,147 @@ document.addEventListener('DOMContentLoaded', async () => {
   const voiceInputMode = document.getElementById('voice-input-mode');
   const aiChatEnabled = document.getElementById('ai-chat-enabled');
   const aiGeneratedMessage = document.getElementById('ai-generated-message');
+  const cloudAuthBtn = document.getElementById('cloud-auth-btn');
+  const cloudStatusText = document.getElementById('cloud-status-text');
+  const cloudStatusDot = document.getElementById('cloud-status-dot');
+  const cloudSyncNote = document.getElementById('cloud-sync-note');
+
+  // ── Cloud Sync (Supabase) ──────────────────────────────────────────────────
+
+  const supabaseConfigured = typeof BODYCI_CONFIG !== 'undefined' &&
+    BODYCI_CONFIG.supabaseUrl && BODYCI_CONFIG.supabaseUrl !== '';
+  const supabaseSdkLoaded = typeof window.supabase !== 'undefined';
+
+  let sbClient = null;
+
+  if (supabaseConfigured && supabaseSdkLoaded) {
+    // Custom storage adapter backed by chrome.storage.local so the session
+    // survives the options page being closed and reopened.
+    const chromeStorageAdapter = {
+      getItem:    (key) => new Promise(r => chrome.storage.local.get([key], res => r(res[key] ?? null))),
+      setItem:    (key, value) => chrome.storage.local.set({ [key]: value }),
+      removeItem: (key) => chrome.storage.local.remove([key])
+    };
+
+    sbClient = window.supabase.createClient(
+      BODYCI_CONFIG.supabaseUrl,
+      BODYCI_CONFIG.supabaseAnonKey,
+      {
+        auth: {
+          storage: chromeStorageAdapter,
+          flowType: 'pkce',
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+          persistSession: true
+        }
+      }
+    );
+
+    // Restore session badge from stored tokens
+    const stored = await chrome.storage.local.get(['sb_access_token', 'sb_user_email']);
+    if (stored.sb_access_token) {
+      setCloudUI({ email: stored.sb_user_email });
+    }
+  } else if (!supabaseConfigured) {
+    cloudStatusText.textContent = 'Add supabaseUrl & supabaseAnonKey to config.local.js';
+    cloudAuthBtn.disabled = true;
+  } else {
+    cloudStatusText.textContent = 'Supabase library failed to load — check lib/supabase.js';
+    cloudAuthBtn.disabled = true;
+  }
+
+  cloudAuthBtn.addEventListener('click', async () => {
+    if (!sbClient) return;
+    if (cloudAuthBtn.dataset.action === 'signout') {
+      await cloudSignOut();
+    } else {
+      await cloudSignIn();
+    }
+  });
+
+  async function cloudSignIn() {
+    cloudAuthBtn.disabled = true;
+    cloudAuthBtn.textContent = 'Opening…';
+    cloudSyncNote.style.display = 'none';
+
+    try {
+      const { data, error } = await sbClient.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: chrome.identity.getRedirectURL(),
+          skipBrowserRedirect: true
+        }
+      });
+      if (error || !data?.url) throw error || new Error('No OAuth URL returned');
+
+      chrome.identity.launchWebAuthFlow({ url: data.url, interactive: true }, async (redirectUrl) => {
+        if (chrome.runtime.lastError || !redirectUrl) {
+          showCloudNote('Sign-in cancelled or failed. Try again.');
+          resetCloudBtn();
+          return;
+        }
+
+        // PKCE: Supabase returns ?code= in the redirect URL
+        const code = new URL(redirectUrl).searchParams.get('code');
+        if (!code) {
+          showCloudNote('No auth code received. Check your Supabase redirect URL settings.');
+          resetCloudBtn();
+          return;
+        }
+
+        const { data: sd, error: se } = await sbClient.auth.exchangeCodeForSession(code);
+        if (se || !sd?.session) {
+          showCloudNote('Session exchange failed. Check your Supabase configuration.');
+          resetCloudBtn();
+          return;
+        }
+
+        await chrome.storage.local.set({
+          sb_access_token: sd.session.access_token,
+          sb_refresh_token: sd.session.refresh_token,
+          sb_user_email:    sd.user?.email || ''
+        });
+        setCloudUI({ email: sd.user?.email });
+      });
+    } catch (e) {
+      console.error('Bodyci: cloud sign-in error:', e);
+      showCloudNote('Sign-in failed: ' + (e.message || e));
+      resetCloudBtn();
+    }
+  }
+
+  async function cloudSignOut() {
+    await sbClient.auth.signOut().catch(() => {});
+    await chrome.storage.local.remove(['sb_access_token', 'sb_refresh_token', 'sb_user_email']);
+    setCloudUI(null);
+  }
+
+  function setCloudUI(user) {
+    if (user?.email) {
+      cloudStatusText.textContent = `Signed in as ${user.email}`;
+      cloudStatusDot.className = 'cloud-status-dot signed-in';
+      cloudAuthBtn.textContent = 'Sign out';
+      cloudAuthBtn.dataset.action = 'signout';
+    } else {
+      cloudStatusText.textContent = 'Not signed in';
+      cloudStatusDot.className = 'cloud-status-dot';
+      cloudAuthBtn.textContent = 'Sign in with Google';
+      cloudAuthBtn.dataset.action = 'signin';
+    }
+    cloudAuthBtn.disabled = false;
+  }
+
+  function resetCloudBtn() {
+    cloudAuthBtn.textContent = 'Sign in with Google';
+    cloudAuthBtn.disabled = false;
+  }
+
+  function showCloudNote(msg) {
+    cloudSyncNote.textContent = msg;
+    cloudSyncNote.style.display = 'block';
+  }
+
+  // ── End Cloud Sync ─────────────────────────────────────────────────────────
 
   // Load settings
   const settings = await PulseState.getSettings();

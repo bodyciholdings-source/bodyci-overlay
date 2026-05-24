@@ -39,6 +39,12 @@ class PulseOverlay {
     this._voiceState = 'idle'; // 'idle' | 'listening' | 'processing' | 'speaking'
     this._handleVisibilityChange = null;
     this._audioEndedListener = null;
+    // Cloud sync — alert event tracking
+    this._alertStartTime = null;
+    this._alertTriggerBpm = null;
+    this._alertMinBpm = null;
+    this._alertMaxBpm = null;
+    this.syncStatusElement = null;
     // Store unsubscribe functions for cleanup
     this._unsubscribeState = null;
     this._unsubscribeHR = null;
@@ -251,6 +257,12 @@ class PulseOverlay {
     chatSection.appendChild(chatInputRow);
     this.alertPanel.appendChild(chatSection);
     overlay.appendChild(this.alertPanel);
+
+    // Sync status — brief indicator shown after upload, outside alertPanel
+    const syncStatus = document.createElement('div');
+    syncStatus.className = 'sync-status';
+    this.syncStatusElement = syncStatus;
+    overlay.appendChild(syncStatus);
 
     this.chatCloseBtn.addEventListener('click', () => this._dismissChat());
     this.chatSendBtn.addEventListener('click', () => this._handleChatSend());
@@ -704,6 +716,19 @@ class PulseOverlay {
         0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
         50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
       }
+
+      /* Cloud sync status — brief flash after alert upload */
+      .sync-status {
+        font-size: 10px;
+        text-align: center;
+        color: transparent;
+        max-height: 0;
+        overflow: hidden;
+        transition: color 0.3s ease, max-height 0.3s ease;
+      }
+      .sync-status.sync-visible       { max-height: 20px; padding-top: 4px; }
+      .sync-status.sync-synced.sync-visible { color: #16a34a; }
+      .sync-status.sync-failed.sync-visible { color: #b45309; }
     `;
   }
 
@@ -731,6 +756,12 @@ class PulseOverlay {
       this.currentBpm = data.bpm;
       this.checkAlertCondition(data.bpm);
       this.updateDisplay();
+
+      // Track min/max BPM throughout the alert for upload
+      if (this.alertState === 'alert') {
+        if (this._alertMinBpm === null || data.bpm < this._alertMinBpm) this._alertMinBpm = data.bpm;
+        if (this._alertMaxBpm === null || data.bpm > this._alertMaxBpm) this._alertMaxBpm = data.bpm;
+      }
 
       if (this.graph) {
         this.graph.addPoint(data.bpm, data.timestamp);
@@ -761,6 +792,12 @@ class PulseOverlay {
     this.alertCooldownRemaining = this.settings.alertCooldown || 60;
     this._alertDisplayMessage = null;
     this._chatDismissed = false;
+
+    // Snapshot for cloud upload
+    this._alertStartTime = Date.now();
+    this._alertTriggerBpm = this.currentBpm;
+    this._alertMinBpm = this.currentBpm;
+    this._alertMaxBpm = this.currentBpm;
 
     const useAiMessage = !!(this.settings.aiGeneratedMessage && this.settings.aiChatEnabled);
 
@@ -801,7 +838,10 @@ class PulseOverlay {
         this._alertInterval = null;
         this.alertState = 'idle';
         this.alertCooldownRemaining = 0;
+        // Snapshot before _clearChat() wipes _chatHistory and _alertDisplayMessage
+        const snapshot = this._snapshotAlert();
         this._clearChat();
+        this._uploadAlertEvent(snapshot); // fire-and-forget
       }
       this.updateDisplay();
     }, 1000);
@@ -1277,6 +1317,63 @@ class PulseOverlay {
   /**
    * Remove overlay DOM and data listeners but keep settings listener.
    */
+  // ── Cloud sync ─────────────────────────────────────────────────────────────
+
+  _snapshotAlert() {
+    return {
+      triggered_at:       new Date(this._alertStartTime || Date.now()).toISOString(),
+      trigger_bpm:        this._alertTriggerBpm,
+      threshold:          this.settings.alertThreshold,
+      cooldown_seconds:   this.settings.alertCooldown,
+      alert_message:      this._alertDisplayMessage !== null
+                            ? this._alertDisplayMessage
+                            : (this.settings.alertMessage || 'Relax'),
+      min_bpm_during_event: this._alertMinBpm,
+      max_bpm_during_event: this._alertMaxBpm,
+      duration_seconds:   Math.round((Date.now() - (this._alertStartTime || Date.now())) / 1000),
+      ai_conversation:    [...this._chatHistory]
+    };
+  }
+
+  async _uploadAlertEvent(snapshot) {
+    const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
+    if (!config?.supabaseUrl || !config?.supabaseAnonKey) return;
+
+    const stored = await chrome.storage.local.get(['sb_access_token']);
+    if (!stored.sb_access_token) return; // not signed in — skip silently
+
+    try {
+      const resp = await fetch(`${config.supabaseUrl}/rest/v1/alert_events`, {
+        method: 'POST',
+        headers: {
+          'apikey':        config.supabaseAnonKey,
+          'Authorization': `Bearer ${stored.sb_access_token}`,
+          'Content-Type':  'application/json',
+          'Prefer':        'return=minimal'
+        },
+        body: JSON.stringify(snapshot)
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      this._showSyncStatus('synced');
+    } catch (e) {
+      console.warn('Bodyci: alert sync failed:', e);
+      this._showSyncStatus('failed');
+    }
+  }
+
+  _showSyncStatus(state) {
+    if (!this.syncStatusElement) return;
+    this.syncStatusElement.textContent = state === 'synced'
+      ? '✓ Synced to bodyci.com'
+      : '⚠ Sync failed';
+    this.syncStatusElement.className = `sync-status sync-${state} sync-visible`;
+    setTimeout(() => {
+      if (this.syncStatusElement) this.syncStatusElement.className = 'sync-status';
+    }, 2500);
+  }
+
+  // ── End cloud sync ─────────────────────────────────────────────────────────
+
   removeOverlay() {
     // Unsubscribe from data listeners
     if (this._unsubscribeState) {
@@ -1336,9 +1433,14 @@ class PulseOverlay {
     this.chatCloseBtn = null;
     this.chatInputRowElement = null;
     this.micBtnElement = null;
+    this.syncStatusElement = null;
     this._chatHistory = [];
     this._alertDisplayMessage = null;
     this._chatDismissed = false;
+    this._alertStartTime = null;
+    this._alertTriggerBpm = null;
+    this._alertMinBpm = null;
+    this._alertMaxBpm = null;
   }
 
   /**

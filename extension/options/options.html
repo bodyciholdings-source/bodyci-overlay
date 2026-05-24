@@ -13,6 +13,20 @@
     </header>
 
     <main>
+      <!-- Cloud Sync -->
+      <section class="card">
+        <h2>Cloud Sync</h2>
+        <p class="help-text cloud-sync-subtitle">Sync your alert history to bodyci.com</p>
+        <div class="cloud-auth-row">
+          <div class="cloud-status">
+            <span class="cloud-status-dot" id="cloud-status-dot"></span>
+            <span id="cloud-status-text">Not signed in</span>
+          </div>
+          <button id="cloud-auth-btn" class="btn btn-secondary">Sign in with Google</button>
+        </div>
+        <p class="help-text" id="cloud-sync-note" style="display:none; margin-top:8px;"></p>
+      </section>
+
       <!-- Server Settings -->
       <section class="card">
         <h2>Server</h2>
@@ -201,6 +215,7 @@
     </footer>
   </div>
 
+  <script src="../lib/supabase.js"></script>
   <script src="../config.local.js"></script>
   <script src="../shared/constants.js"></script>
   <script src="../shared/state.js"></script>
