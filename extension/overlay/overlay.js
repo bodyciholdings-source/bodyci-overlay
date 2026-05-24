@@ -255,8 +255,11 @@ class PulseOverlay {
     this.chatCloseBtn.addEventListener('click', () => this._dismissChat());
     this.chatSendBtn.addEventListener('click', () => this._handleChatSend());
     this.chatInputElement.addEventListener('keydown', (e) => {
+      e.stopPropagation();
       if (e.key === 'Enter') this._handleChatSend();
     });
+    this.chatInputElement.addEventListener('keyup', (e) => e.stopPropagation());
+    this.chatInputElement.addEventListener('keypress', (e) => e.stopPropagation());
     this.micBtnElement.addEventListener('click', () => {
       if (this._voiceState === 'idle') {
         this._startListening();
@@ -980,7 +983,10 @@ class PulseOverlay {
 
       if (!fullText) throw new Error('empty');
       this._chatHistory.push({ role: 'assistant', content: fullText });
-      this._speakText(fullText); // also stops mic and sets 'speaking' state
+      const alertType = this.settings.alertType || 'visual';
+      if (alertType === 'audio' || alertType === 'both') {
+        this._speakText(fullText); // also stops mic and sets 'speaking' state
+      }
     } catch (e) {
       console.warn('Bodyci: AI chat error:', e);
       if (assistantBubble) {
