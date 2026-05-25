@@ -25,7 +25,7 @@ class PulseOverlay {
     this.alertCountdownElement = null;
     // AI chat
     this._chatHistory = []; // [{role, content}]
-    this._alertDisplayMessage = null; // overrides preset message when AI generates one
+    this._alertDisplayMessage = null; // message shown while an alert is active
     this._chatDismissed = false; // true after user clicks X; reset on next alert
     this.chatAreaElement = null;
     this.chatInputElement = null;
@@ -802,37 +802,15 @@ class PulseOverlay {
     this._alertSnapshotThreshold = this.settings.alertThreshold;
     this._alertSnapshotMessage = this.settings.alertMessage || 'Relax';
 
-    const useAiMessage = !!(this.settings.aiGeneratedMessage && this.settings.aiChatEnabled);
-
-    if (useAiMessage) {
-      // Show overlay immediately with empty message area; text streams in within ~200ms
-      this._alertDisplayMessage = '';
-      this.updateDisplay();
-
-      this._generateOpeningMessage().then(reply => {
-        if (this.alertState !== 'alert') return; // alert ended before AI replied
-        if (reply) {
-          this._alertDisplayMessage = reply;
-          this._chatHistory.push({ role: 'assistant', content: reply });
-          if (alertType === 'audio' || alertType === 'both') {
-            this._speakText(reply);
-          }
-        } else {
-          // Fallback to preset on error
-          this._alertDisplayMessage = null;
-          if (alertType === 'audio' || alertType === 'both') {
-            this._speakText(this.settings.alertMessage || 'Relax');
-          }
-        }
-        this.updateDisplay();
-      });
-    } else {
-      // Normal mode: show preset, speak if audio
-      if (alertType === 'audio' || alertType === 'both') {
-        this._speakText(this.settings.alertMessage || 'Relax');
-      }
-      this.updateDisplay();
+    const alertMessage = this._buildAlertMessage();
+    this._alertDisplayMessage = alertMessage;
+    if (this.settings.aiChatEnabled) {
+      this._chatHistory.push({ role: 'assistant', content: alertMessage });
     }
+    if (alertType === 'audio' || alertType === 'both') {
+      this._speakText(alertMessage);
+    }
+    this.updateDisplay();
 
     this._alertInterval = setInterval(() => {
       this.alertCooldownRemaining--;
@@ -866,24 +844,43 @@ class PulseOverlay {
     if (this._voiceState === 'listening') this._stopListening();
     if ((this.settings.voiceInputMode || 'off') !== 'off') this._setVoiceState('speaking');
 
+    chrome.runtime.sendMessage({ type: 'stopElevenLabs' });
+    chrome.runtime.sendMessage({ type: 'stopChromeTts' });
+
     const voiceId = this.settings.selectedVoice || 'standard';
     const voice = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
     if (voice.engine === 'elevenlabs' && typeof speakElevenLabs === 'function') {
-      chrome.runtime.sendMessage({ type: 'stopElevenLabs' });
       speakElevenLabs(text, voice.id).then(success => {
         if (!success) {
-          chrome.runtime.sendMessage({ type: 'stopChromeTts' });
-          chrome.runtime.sendMessage({ type: 'speak', text });
+          chrome.runtime.sendMessage({ type: 'speak', text, options: this._getCalmSpeechOptions() });
         }
       });
     } else {
-      chrome.runtime.sendMessage({ type: 'speak', text });
+      chrome.runtime.sendMessage({ type: 'speak', text, options: this._getCalmSpeechOptions() });
     }
   }
 
   /**
+   * Build the alert text using the BPM captured when the alert fired.
+   */
+  _buildAlertMessage() {
+    const bpm = this._alertTriggerBpm ?? this.currentBpm;
+    return `Your heart rate just spiked to ${bpm} BPM... which is above your threshold. Try to relax. Bodyci is here to help.`;
+  }
+
+  /**
+   * Chrome TTS pacing for calm, understandable alert delivery.
+   */
+  _getCalmSpeechOptions() {
+    return {
+      rate: 0.86,
+      pitch: 0.95
+    };
+  }
+
+  /**
    * User clicked X — hide chat for the rest of this alert cycle and stop audio.
-   * Preserves _alertDisplayMessage so the AI opening text stays in the header.
+   * Preserves _alertDisplayMessage so the opening text stays in the header.
    */
   _dismissChat() {
     this._stopListening();
@@ -1330,8 +1327,8 @@ class PulseOverlay {
       threshold:            this._alertSnapshotThreshold,   // captured at enterAlert()
       cooldown_seconds:     this.settings.alertCooldown,    // cooldown is structural, end-time is fine
       alert_message:        this._alertDisplayMessage !== null
-                              ? this._alertDisplayMessage   // AI-generated opening
-                              : this._alertSnapshotMessage, // preset captured at enterAlert()
+                              ? this._alertDisplayMessage
+                              : this._alertSnapshotMessage,
       min_bpm_during_event: this._alertMinBpm,
       max_bpm_during_event: this._alertMaxBpm,
       duration_seconds:     Math.round((Date.now() - (this._alertStartTime || Date.now())) / 1000),

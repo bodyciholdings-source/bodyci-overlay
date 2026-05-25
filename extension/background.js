@@ -219,8 +219,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'speak') {
+    const speechOptions = message.options || {};
     chrome.tts.stop();
     chrome.tts.speak(message.text || '', {
+      enqueue: false,
+      rate: speechOptions.rate || 1.0,
+      pitch: speechOptions.pitch || 1.0,
       onEvent: (event) => {
         // Notify all tabs when speech ends naturally so the mic can re-activate.
         // Ignore 'interrupted'/'cancelled' — those come from explicit stops, not natural end.
