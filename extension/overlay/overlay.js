@@ -861,6 +861,7 @@ class PulseOverlay {
    * Speak text using the currently-selected voice, cancelling any prior audio.
    */
   _speakText(text) {
+    text = normalizeForTts(text);
     // Stop any active mic session — the mic must be silent while AI is speaking
     if (this._voiceState === 'listening') this._stopListening();
     if ((this.settings.voiceInputMode || 'off') !== 'off') this._setVoiceState('speaking');
@@ -1066,7 +1067,7 @@ class PulseOverlay {
     const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
     if (!config || !config.openaiApiKey || config.openaiApiKey === 'PASTE_KEY_HERE') return null;
 
-    const systemContent = `You are Bodyci, a calm AI companion checking in with someone whose heart rate just spiked. Their current BPM is ${this.currentBpm || 'unknown'} and their threshold is ${this.settings.alertThreshold}.\n\nGenerate a SHORT opening (1-2 sentences max) that:\n1. Briefly identifies yourself as Bodyci\n2. Acknowledges the heart rate spike\n3. Asks an open-ended check-in question\n\nDo NOT give any grounding advice, breathing techniques, or suggestions. Just introduce yourself and check in. Be warm and curious, not clinical or corny.`;
+    const systemContent = `You are Bodyci, a calm AI companion checking in with someone whose heart rate just spiked. Their current BPM is ${this.currentBpm || 'unknown'} and their threshold is ${this.settings.alertThreshold}.\n\nGenerate a SHORT opening message (2-3 sentences max) that follows this structure EXACTLY:\n1. FIRST sentence: acknowledge their health state directly — mention that their heart rate is elevated or their BPM just spiked. Do NOT start with your name.\n2. SECOND sentence: ask one open-ended check-in question (what's going on, how are they feeling, what they're in the middle of).\n3. FINAL sentence must be word-for-word: 'Bodyci is here to help.'\n\nDo NOT start with 'I' or your name. Do NOT include grounding advice, breathing techniques, or any suggestions.`;
 
     let fullText = '';
     try {

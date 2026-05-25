@@ -40,10 +40,20 @@ const PULSE_STATE_LABELS = {
   disconnected: 'Disconnected'
 };
 
+/**
+ * Replace "Bodyci" with a phonetic spelling TTS engines pronounce correctly.
+ * "Body See" causes both chrome.tts and ElevenLabs to say "BODY-SEE" instead of "BODY-KAI".
+ * Only applied to spoken text — visible UI text is never passed through this.
+ */
+function normalizeForTts(text) {
+  return text.replace(/Bodyci/gi, 'Bodysee');
+}
+
 // Export for different contexts
 if (typeof window !== 'undefined') {
   window.PULSE_DEFAULTS = PULSE_DEFAULTS;
   window.VOICE_OPTIONS = VOICE_OPTIONS;
   window.PULSE_STATE_LABELS = PULSE_STATE_LABELS;
   window.OPENAI_MODEL = OPENAI_MODEL;
+  window.normalizeForTts = normalizeForTts;
 }

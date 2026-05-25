@@ -282,19 +282,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     testAlertBtn.disabled = true;
 
     if (type === 'audio' || type === 'both') {
+      const spokenMessage = normalizeForTts(message);
       if (voice.engine === 'elevenlabs') {
         testAlertFeedback.textContent = `Requesting ${voice.name}…`;
-        const success = await speakElevenLabs(message, voice.id);
+        const success = await speakElevenLabs(spokenMessage, voice.id);
         if (success) {
           testAlertFeedback.textContent = `Speaking: "${message}" (${voice.name})`;
         } else {
           chrome.tts.stop();
-          chrome.tts.speak(message);
+          chrome.tts.speak(spokenMessage);
           testAlertFeedback.textContent = `ElevenLabs failed — using system voice`;
         }
       } else {
         chrome.tts.stop();
-        chrome.tts.speak(message);
+        chrome.tts.speak(spokenMessage);
         testAlertFeedback.textContent = `Speaking: "${message}"`;
       }
     } else {
