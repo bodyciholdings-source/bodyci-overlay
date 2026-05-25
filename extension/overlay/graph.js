@@ -57,7 +57,7 @@ class PulseGraph {
 
     // Draw baseline when no data
     if (points.length < 2) {
-      ctx.strokeStyle = 'rgba(244, 67, 54, 0.3)';
+      ctx.strokeStyle = 'rgba(37, 99, 235, 0.3)';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
@@ -75,7 +75,7 @@ class PulseGraph {
 
     // Draw line
     ctx.beginPath();
-    ctx.strokeStyle = '#F44336';
+    ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -101,8 +101,8 @@ class PulseGraph {
     ctx.closePath();
 
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, 'rgba(244, 67, 54, 0.3)');
-    gradient.addColorStop(1, 'rgba(244, 67, 54, 0)');
+    gradient.addColorStop(0, 'rgba(37, 99, 235, 0.18)');
+    gradient.addColorStop(1, 'rgba(37, 99, 235, 0)');
     ctx.fillStyle = gradient;
     ctx.fill();
   }
