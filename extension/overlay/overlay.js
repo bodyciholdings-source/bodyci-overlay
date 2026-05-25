@@ -793,11 +793,14 @@ class PulseOverlay {
     this._alertDisplayMessage = null;
     this._chatDismissed = false;
 
-    // Snapshot for cloud upload
+    // Snapshot everything needed for cloud upload — captured NOW so mid-alert
+    // settings changes don't corrupt the record.
     this._alertStartTime = Date.now();
     this._alertTriggerBpm = this.currentBpm;
     this._alertMinBpm = this.currentBpm;
     this._alertMaxBpm = this.currentBpm;
+    this._alertSnapshotThreshold = this.settings.alertThreshold;
+    this._alertSnapshotMessage = this.settings.alertMessage || 'Relax';
 
     const useAiMessage = !!(this.settings.aiGeneratedMessage && this.settings.aiChatEnabled);
 
@@ -1321,17 +1324,17 @@ class PulseOverlay {
 
   _snapshotAlert() {
     return {
-      triggered_at:       new Date(this._alertStartTime || Date.now()).toISOString(),
-      trigger_bpm:        this._alertTriggerBpm,
-      threshold:          this.settings.alertThreshold,
-      cooldown_seconds:   this.settings.alertCooldown,
-      alert_message:      this._alertDisplayMessage !== null
-                            ? this._alertDisplayMessage
-                            : (this.settings.alertMessage || 'Relax'),
+      triggered_at:         new Date(this._alertStartTime || Date.now()).toISOString(),
+      trigger_bpm:          this._alertTriggerBpm,
+      threshold:            this._alertSnapshotThreshold,   // captured at enterAlert()
+      cooldown_seconds:     this.settings.alertCooldown,    // cooldown is structural, end-time is fine
+      alert_message:        this._alertDisplayMessage !== null
+                              ? this._alertDisplayMessage   // AI-generated opening
+                              : this._alertSnapshotMessage, // preset captured at enterAlert()
       min_bpm_during_event: this._alertMinBpm,
       max_bpm_during_event: this._alertMaxBpm,
-      duration_seconds:   Math.round((Date.now() - (this._alertStartTime || Date.now())) / 1000),
-      ai_conversation:    [...this._chatHistory]
+      duration_seconds:     Math.round((Date.now() - (this._alertStartTime || Date.now())) / 1000),
+      ai_conversation:      [...this._chatHistory]
     };
   }
 
@@ -1441,6 +1444,8 @@ class PulseOverlay {
     this._alertTriggerBpm = null;
     this._alertMinBpm = null;
     this._alertMaxBpm = null;
+    this._alertSnapshotThreshold = null;
+    this._alertSnapshotMessage = null;
   }
 
   /**
