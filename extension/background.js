@@ -3,8 +3,9 @@
  * Maintains WebSocket connection to Pulse Server and broadcasts data to content scripts.
  */
 
-// Import shared constants
+// Import shared constants and local config (for Supabase credentials)
 importScripts('shared/constants.js');
+importScripts('config.local.js');
 
 // Connection state
 let ws = null;
@@ -350,13 +351,58 @@ if (chrome.alarms) {
   chrome.alarms.create('keepAlive', { periodInMinutes: 1 });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === 'keepAlive') {
-      // Only attempt to reconnect if auto-reconnect is still enabled
       if (autoReconnectEnabled && (!ws || ws.readyState !== WebSocket.OPEN)) {
         connect();
       }
+      // Proactively refresh Supabase token so it's ready before the next upload
+      refreshSupabaseTokenIfNeeded();
     }
   });
 }
 
-// Reconnect on service worker startup
+/**
+ * Refresh the Supabase access token if it is expired or within 5 minutes of expiry.
+ * Clears stored tokens if the refresh token itself is invalid.
+ */
+async function refreshSupabaseTokenIfNeeded() {
+  const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
+  if (!config?.supabaseUrl || !config?.supabaseAnonKey) return;
+
+  const stored = await chrome.storage.local.get(['sb_access_token', 'sb_refresh_token']);
+  if (!stored.sb_refresh_token) return;
+
+  // Check whether the access token still has >5 minutes of life
+  if (stored.sb_access_token) {
+    try {
+      const payload = stored.sb_access_token.split('.')[1];
+      const { exp } = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+      if (exp && (exp - Date.now() / 1000) > 300) return; // still valid
+    } catch { /* malformed — fall through to refresh */ }
+  }
+
+  try {
+    const resp = await fetch(
+      `${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+      {
+        method: 'POST',
+        headers: { 'apikey': config.supabaseAnonKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: stored.sb_refresh_token })
+      }
+    );
+    if (!resp.ok) throw new Error(`${resp.status}`);
+    const data = await resp.json();
+    await chrome.storage.local.set({
+      sb_access_token:  data.access_token,
+      sb_refresh_token: data.refresh_token
+    });
+    console.log('Bodyci: Supabase token refreshed');
+  } catch (e) {
+    console.warn('Bodyci: Supabase token refresh failed:', e);
+    // Refresh token expired — clear session so user knows to sign in again
+    await chrome.storage.local.remove(['sb_access_token', 'sb_refresh_token', 'sb_user_email']);
+  }
+}
+
+// Reconnect on service worker startup + warm-start the Supabase token
 connect();
+refreshSupabaseTokenIfNeeded();

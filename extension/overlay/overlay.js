@@ -1338,19 +1338,66 @@ class PulseOverlay {
     };
   }
 
+  /**
+   * Ensure the stored Supabase access token is still valid.
+   * Refreshes automatically if it expires within 5 minutes.
+   * Returns the usable access token, or null if not signed in / refresh failed.
+   */
+  async _refreshTokenIfNeeded(config) {
+    const stored = await chrome.storage.local.get(['sb_access_token', 'sb_refresh_token']);
+    if (!stored.sb_access_token) return null;
+
+    // Parse JWT exp claim (middle segment, base64url-encoded JSON)
+    let needsRefresh = true;
+    try {
+      const payload = stored.sb_access_token.split('.')[1];
+      const { exp } = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+      if (exp && (exp - Date.now() / 1000) > 300) needsRefresh = false; // >5 min left
+    } catch { /* malformed token — attempt refresh */ }
+
+    if (!needsRefresh) return stored.sb_access_token;
+    if (!stored.sb_refresh_token) {
+      await chrome.storage.local.remove(['sb_access_token', 'sb_refresh_token', 'sb_user_email']);
+      return null;
+    }
+
+    try {
+      const resp = await fetch(
+        `${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+        {
+          method: 'POST',
+          headers: { 'apikey': config.supabaseAnonKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: stored.sb_refresh_token })
+        }
+      );
+      if (!resp.ok) throw new Error(`refresh ${resp.status}`);
+      const data = await resp.json();
+      await chrome.storage.local.set({
+        sb_access_token:  data.access_token,
+        sb_refresh_token: data.refresh_token
+      });
+      return data.access_token;
+    } catch (e) {
+      console.warn('Bodyci: token refresh failed:', e);
+      // Refresh token itself is expired — clear session, user must sign in again
+      await chrome.storage.local.remove(['sb_access_token', 'sb_refresh_token', 'sb_user_email']);
+      return null;
+    }
+  }
+
   async _uploadAlertEvent(snapshot) {
     const config = typeof BODYCI_CONFIG !== 'undefined' ? BODYCI_CONFIG : null;
     if (!config?.supabaseUrl || !config?.supabaseAnonKey) return;
 
-    const stored = await chrome.storage.local.get(['sb_access_token']);
-    if (!stored.sb_access_token) return; // not signed in — skip silently
+    const accessToken = await this._refreshTokenIfNeeded(config);
+    if (!accessToken) return; // not signed in, or refresh token expired
 
     try {
       const resp = await fetch(`${config.supabaseUrl}/rest/v1/alert_events`, {
         method: 'POST',
         headers: {
           'apikey':        config.supabaseAnonKey,
-          'Authorization': `Bearer ${stored.sb_access_token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type':  'application/json',
           'Prefer':        'return=minimal'
         },
